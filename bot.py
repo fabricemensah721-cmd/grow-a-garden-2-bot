@@ -11,28 +11,25 @@ from threading import Thread
 
 intents = discord.Intents.all()
 
-# Wir erstellen eine eigene Bot-Klasse, um die Ticket-Buttons permanent zu registrieren
 class GardenBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # Das hier sorgt dafür, dass die Ticket-Buttons IMMER funktionieren, auch nach einem Neustart!
+        # Registriert alle persistenten Buttons (Normales Ticket & Middleman Ticket)
         self.add_view(TicketView())
         self.add_view(CloseTicketView())
+        self.add_view(MiddlemanTicketView())
+        self.add_view(CloseMiddlemanTicketView())
 
 bot = GardenBot()
 tree = bot.tree
 
-# ─── SPAM TRACKER ───────────────────────────────────────────
+# ─── TRACKER & CONFIG ───────────────────────────────────────
 spam_tracker = {}
 SPAM_LIMIT = 5
 SPAM_ZEITRAUM = 5
-
-# ─── WARN TRACKER ───────────────────────────────────────────
 warnings = {}
-
-# ─── AUTO-MOD SETTINGS ──────────────────────────────────────
 BAD_WORDS = ["badword1", "badword2", "badword3"]
 MAX_MENTIONS = 5
 MAX_CAPS_PERCENT = 70
@@ -53,11 +50,10 @@ def is_owner():
     return app_commands.check(predicate)
 
 # ════════════════════════════════════════════════════════════
-#  PERSISTENT TICKET VIEWS (FIXED)
+#  STANDARD TICKET SYSTEM
 # ════════════════════════════════════════════════════════════
 class CloseTicketView(discord.ui.View):
     def __init__(self):
-        # timeout=None ist zwingend notwendig für dauerhafte Buttons!
         super().__init__(timeout=None)
 
     @discord.ui.button(label="👤 Claim", style=discord.ButtonStyle.green, custom_id="persistent_claim_ticket")
@@ -81,81 +77,128 @@ class TicketView(discord.ui.View):
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
         user = interaction.user
-        
         existing = discord.utils.get(guild.text_channels, name=f"ticket-{user.name.lower()}")
         if existing:
             await interaction.response.send_message(f"❌ You already have an open ticket: {existing.mention}", ephemeral=True)
             return
-            
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
             guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),
             guild.owner: discord.PermissionOverwrite(read_messages=True, send_messages=True),
         }
-        
         category = discord.utils.get(guild.categories, name="TICKETS")
-        if not category: 
-            category = await guild.create_category("TICKETS")
-            
+        if not category: category = await guild.create_category("TICKETS")
         channel = await guild.create_text_channel(f"ticket-{user.name}", overwrites=overwrites, category=category)
         
-        embed = discord.Embed(
-            title="🎫 New Ticket",
-            description=f"Hello {user.mention}! 👋\nSupport will be with you shortly.\n\nPlease describe your issue below.",
-            color=discord.Color.blurple()
-        )
-        embed.set_footer(text="Click 'Close Ticket' when your issue is resolved.")
+        embed = discord.Embed(title="🎫 New Ticket", description=f"Hello {user.mention}! 👋\nSupport will be with you shortly.\nPlease describe your issue below.", color=discord.Color.blurple())
         await channel.send(embed=embed, view=CloseTicketView())
         await interaction.response.send_message(f"✅ Your ticket has been created: {channel.mention}", ephemeral=True)
 
 # ════════════════════════════════════════════════════════════
-#  EVENTS
+#  MIDDLEMAN TICKET SYSTEM (NEW & ENGLISCH)
+# ════════════════════════════════════════════════════════════
+class CloseMiddlemanTicketView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🤝 Claim Service", style=discord.ButtonStyle.green, custom_id="persistent_claim_mm")
+    async def claim_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        button.label = f"✅ Middleman: {interaction.user.name}"
+        button.disabled = True
+        await interaction.message.edit(view=self)
+        await interaction.response.send_message(f"🤝 {interaction.user.mention} will act as your Middleman for this trade!")
+
+    @discord.ui.button(label="🔒 Close Trade", style=discord.ButtonStyle.red, custom_id="persistent_close_mm")
+    async def close_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("🔒 Closing this trade ticket in 5 seconds...")
+        await asyncio.sleep(5)
+        await interaction.channel.delete()
+
+class MiddlemanTicketView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🤝 Request Middleman", style=discord.ButtonStyle.success, custom_id="persistent_open_mm")
+    async def open_mm_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        user = interaction.user
+        existing = discord.utils.get(guild.text_channels, name=f"mm-ticket-{user.name.lower()}")
+        if existing:
+            await interaction.response.send_message(f"❌ You already have an active middleman request: {existing.mention}", ephemeral=True)
+            return
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            guild.owner: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+        }
+        category = discord.utils.get(guild.categories, name="MIDDLEMAN TICKETS")
+        if not category: category = await guild.create_category("MIDDLEMAN TICKETS")
+        channel = await guild.create_text_channel(f"mm-ticket-{user.name}", overwrites=overwrites, category=category)
+        
+        embed = discord.Embed(
+            title="🤝 Middleman Service Requested",
+            description=f"Welcome {user.mention}!\nAn official Middleman will join this ticket shortly.\n\n**Please prepare the following information:**\n1. Who are you trading with? (Ping them)\n2. What are you giving?\n3. What are you receiving?",
+            color=discord.Color.brand_green()
+        )
+        embed.set_footer(text="Do not invite unofficial users to secure your trade!")
+        await channel.send(embed=embed, view=CloseMiddlemanTicketView())
+        await interaction.response.send_message(f"✅ Your Middleman request has been created: {channel.mention}", ephemeral=True)
+
+@tree.command(name="middleman_ticket", description="Send the Middleman Request panel to this channel")
+@is_owner()
+async def middleman_ticket(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="🤝 Safe Trading - Middleman Service",
+        description="Do you want to complete a trade safely? Click the button below to request an official Middleman to secure your trade!",
+        color=discord.Color.brand_green()
+    )
+    embed.set_footer(text="Always use a Middleman to prevent scams.")
+    await interaction.channel.send(embed=embed, view=MiddlemanTicketView())
+    await interaction.response.send_message("✅ Middleman panel sent!", ephemeral=True)
+
+# ════════════════════════════════════════════════════════════
+#  HELP PANEL (UPDATED)
+# ════════════════════════════════════════════════════════════
+@tree.command(name="help", description="Show all available bot commands")
+async def help_cmd(interaction: discord.Interaction):
+    embed = discord.Embed(title="🌿 Garden Bot Help Panel", description="Full list of all slash commands.", color=discord.Color.blurple())
+    embed.add_field(name="🛡️ Moderation", value="`/ban`, `/unban`, `/kick`, `/mute`, `/unmute`, `/warn`, `/warnings`, `/clearwarnings`, `/purge`, `/slowmode`, `/lock`, `/unlock`, `/nickname`, `/addrole`, `/removerole`", inline=False)
+    embed.add_field(name="🏗️ Server Setup", value="`/revamp`, `/deleteallchannels`, `/createchannel`, `/deletechannel`, `/createrole`, `/deleterole`", inline=False)
+    embed.add_field(name="🎫 Systems & Fun", value="`/ticket` *(Support)*, `/middleman_ticket` *(Safe Trades)*, `/verify`, `/hit`, `/poll`, `/say`, `/embed`, `/avatar`, `/announce`, `/serverinfo`, `/userinfo`, `/membercount`, `/ping`, `/coinflip`, `/dice`, `/8ball`, `/choose`, `/uptime`, `/botinfo`", inline=False)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+# ════════════════════════════════════════════════════════════
+#  EVENTS & AUTOMOD
 # ════════════════════════════════════════════════════════════
 @bot.event
 async def on_ready():
-    if not hasattr(bot, 'start_time'):
-        bot.start_time = datetime.datetime.utcnow()
-    
-    try:
-        await tree.sync()
-        print("Slash Commands erfolgreich synchronisiert!")
-    except Exception as e:
-        print(f"Fehler beim Syncen der Commands: {e}")
-
+    if not hasattr(bot, 'start_time'): bot.start_time = datetime.datetime.utcnow()
+    try: await tree.sync()
+    except Exception as e: print(f"Sync error: {e}")
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="the server 👀"))
-    print(f"Bot ist online als: {bot.user}")
+    print(f"Bot online: {bot.user}")
 
 @bot.event
 async def on_member_join(member):
     channel = discord.utils.get(member.guild.text_channels, name="welcome")
     if channel:
-        embed = discord.Embed(
-            title=f"👋 Welcome {member.name}!",
-            description=f"Welcome to **{member.guild.name}**! You are member #{member.guild.member_count}.",
-            color=discord.Color.green()
-        )
+        embed = discord.Embed(title=f"👋 Welcome {member.name}!", description=f"Welcome to **{member.guild.name}**! You are member #{member.guild.member_count}.", color=discord.Color.green())
         embed.set_thumbnail(url=member.display_avatar.url)
         await channel.send(embed=embed)
 
 @bot.event
 async def on_member_remove(member):
     channel = discord.utils.get(member.guild.text_channels, name="welcome")
-    if channel:
-        embed = discord.Embed(
-            title=f"👋 {member.name} left the server.",
-            color=discord.Color.red()
-        )
-        await channel.send(embed=embed)
+    if channel: await channel.send(embed=discord.Embed(title=f"👋 {member.name} left the server.", color=discord.Color.red()))
 
 @bot.event
 async def on_message(message):
-    if message.author.bot or message.guild is None:
-        return
+    if message.author.bot or message.guild is None: return
     if message.author.id == message.guild.owner_id:
         await bot.process_commands(message)
         return
-
     user_id = message.author.id
     jetzt = time.time()
     content = message.content
@@ -164,26 +207,20 @@ async def on_message(message):
         await message.delete()
         await message.channel.send(f"⚠️ {message.author.mention} Bad language is not allowed!", delete_after=5)
         return
-
     if INVITE_PATTERN in content.lower():
         await message.delete()
         await message.channel.send(f"⚠️ {message.author.mention} Posting invite links is not allowed!", delete_after=5)
         return
-
     if len(message.mentions) >= MAX_MENTIONS:
         await message.delete()
         await message.channel.send(f"⚠️ {message.author.mention} Mass mentioning is not allowed!", delete_after=5)
         return
+    if len(content) > 10 and (sum(1 for c in content if c.isupper()) / len(content)) * 100 >= MAX_CAPS_PERCENT:
+        await message.delete()
+        await message.channel.send(f"⚠️ {message.author.mention} Please don't use excessive caps!", delete_after=5)
+        return
 
-    if len(content) > 10:
-        caps = sum(1 for c in content if c.isupper())
-        if (caps / len(content)) * 100 >= MAX_CAPS_PERCENT:
-            await message.delete()
-            await message.channel.send(f"⚠️ {message.author.mention} Please don't use excessive caps!", delete_after=5)
-            return
-
-    if user_id not in spam_tracker:
-        spam_tracker[user_id] = []
+    if user_id not in spam_tracker: spam_tracker[user_id] = []
     spam_tracker[user_id] = [t for t in spam_tracker[user_id] if jetzt - t < SPAM_ZEITRAUM]
     spam_tracker[user_id].append(jetzt)
     if len(spam_tracker[user_id]) > SPAM_LIMIT:
@@ -196,27 +233,10 @@ async def on_message(message):
             await asyncio.sleep(300)
             await message.author.remove_roles(mute_role)
         return
-
     await bot.process_commands(message)
 
 # ════════════════════════════════════════════════════════════
-#  HELP COMMAND (NEW)
-# ════════════════════════════════════════════════════════════
-@tree.command(name="help", description="Show all available bot commands")
-async def help_cmd(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="🌿 Garden Bot Help Panel", 
-        description="Here is a full list of all available slash commands. Note: Admin commands require Server Owner status.", 
-        color=discord.Color.blurple()
-    )
-    embed.add_field(name="🛡️ Moderation", value="`/ban`, `/unban`, `/kick`, `/mute`, `/unmute`, `/warn`, `/warnings`, `/clearwarnings`, `/purge`, `/slowmode`, `/lock`, `/unlock`, `/nickname`, `/addrole`, `/removerole`", inline=False)
-    embed.add_field(name="🏗️ Server Setup", value="`/revamp` *(Setup Garden Channels)*, `/deleteallchannels`, `/createchannel`, `/deletechannel`, `/createrole`, `/deleterole`", inline=False)
-    embed.add_field(name="🎫 Systems & Fun", value="`/ticket` *(Send Ticket Panel)*, `/verify` *(Verify Menu)*, `/hit` *(Business Offer)*, `/poll`, `/say`, `/embed`, `/avatar`, `/announce`, `/serverinfo`, `/userinfo`, `/membercount`, `/ping`, `/coinflip`, `/dice`, `/8ball`, `/choose`, `/uptime`, `/botinfo`", inline=False)
-    embed.set_footer(text=f"Requested by {interaction.user.name}")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
-# ════════════════════════════════════════════════════════════
-#  OTHER COMMANDS
+#  VERIFY & HIT COMMANDS
 # ════════════════════════════════════════════════════════════
 @tree.command(name="verify", description="Verify yourself on the server")
 async def verify(interaction: discord.Interaction):
@@ -230,18 +250,6 @@ async def verify(interaction: discord.Interaction):
     view.add_item(yes_button)
     view.add_item(no_button)
     await interaction.response.send_message("👋 **Welcome!**\nDo you agree to the server rules and want to verify yourself?", view=view, ephemeral=True)
-
-@tree.command(name="ticket", description="Send the ticket panel to this channel")
-@is_owner()
-async def ticket(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="🎫 Support Tickets",
-        description="Need help? Click the button below to open a ticket!\nOur support team will assist you as soon as possible.",
-        color=discord.Color.blurple()
-    )
-    embed.set_footer(text="Please only open a ticket if you have a real issue.")
-    await interaction.channel.send(embed=embed, view=TicketView())
-    await interaction.response.send_message("✅ Ticket panel sent!", ephemeral=True)
 
 class HitConfirmView(discord.ui.View):
     def __init__(self, target: discord.Member):
@@ -264,6 +272,9 @@ async def hit(interaction: discord.Interaction, member: discord.Member):
     embed.add_field(name="📩 Hey there!", value=f"👋 Offer for {member.mention}.\nJoin us and make some serious profit!", inline=False)
     await interaction.response.send_message(f"{member.mention}", embed=embed, view=HitConfirmView(target=member))
 
+# ════════════════════════════════════════════════════════════
+#  MODERATION COMMANDS (owner only)
+# ════════════════════════════════════════════════════════════
 @tree.command(name="ban", description="Ban a member")
 @is_owner()
 async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
@@ -289,8 +300,7 @@ async def mute(interaction: discord.Interaction, member: discord.Member, minutes
     mute_role = discord.utils.get(interaction.guild.roles, name="Muted")
     if not mute_role:
         mute_role = await interaction.guild.create_role(name="Muted")
-        for channel in interaction.guild.channels:
-            await channel.set_permissions(mute_role, send_messages=False, speak=False)
+        for channel in interaction.guild.channels: await channel.set_permissions(mute_role, send_messages=False, speak=False)
     await member.add_roles(mute_role, reason=reason)
     await interaction.response.send_message(f"🔇 **{member}** has been muted for {minutes} minutes. Reason: {reason}")
     await asyncio.sleep(minutes * 60)
@@ -326,8 +336,7 @@ async def check_warnings(interaction: discord.Interaction, member: discord.Membe
         await interaction.response.send_message(f"✅ **{member}** has no warnings.", ephemeral=True)
         return
     embed = discord.Embed(title=f"⚠️ Warnings for {member}", color=discord.Color.orange())
-    for i, w in enumerate(warnings[uid], 1):
-        embed.add_field(name=f"Warning {i}", value=f"Reason: {w['reason']}\nTime: {w['time']}", inline=False)
+    for i, w in enumerate(warnings[uid], 1): embed.add_field(name=f"Warning {i}", value=f"Reason: {w['reason']}\nTime: {w['time']}", inline=False)
     await interaction.response.send_message(embed=embed)
 
 @tree.command(name="clearwarnings", description="Clear all warnings of a member")
@@ -379,6 +388,9 @@ async def removerole(interaction: discord.Interaction, member: discord.Member, r
     await member.remove_roles(role)
     await interaction.response.send_message(f"✅ Role **{role.name}** removed from **{member}**.")
 
+# ════════════════════════════════════════════════════════════
+#  SERVER SETUP & UTILITY COMMANDS (owner only)
+# ════════════════════════════════════════════════════════════
 @tree.command(name="revamp", description="Setup Grow a Garden 2 channel structure")
 @is_owner()
 async def revamp(interaction: discord.Interaction):
@@ -388,29 +400,17 @@ async def revamp(interaction: discord.Interaction):
         if channel != interaction.channel:
             try: await channel.delete()
             except Exception: pass
-
     structure = {
-        "📌 ▬▬ INFO & NEWS ▬▬": [
-            ("👋-welcome", discord.ChannelType.text), ("📜-rules", discord.ChannelType.text),
-            ("📢-announcements", discord.ChannelType.text), ("🎁-giveaways", discord.ChannelType.text)
-        ],
-        "💬 ▬▬ COMMUNITY ▬▬": [
-            ("🌿-garden-chat", discord.ChannelType.text), ("🤖-bot-commands", discord.ChannelType.text),
-            ("🌌-memes", discord.ChannelType.text), ("🔊 Lounge", discord.ChannelType.voice), ("🔊 Gaming", discord.ChannelType.voice)
-        ],
-        "🌻 ▬▬ GARDEN GAMEPLAY ▬▬": [
-            ("🌾-flex-your-garden", discord.ChannelType.text), ("🫘-seed-market", discord.ChannelType.text),
-            ("🤝-trading", discord.ChannelType.text), ("💡-garden-tips", discord.ChannelType.text)
-        ],
+        "📌 ▬▬ INFO & NEWS ▬▬": [("👋-welcome", discord.ChannelType.text), ("📜-rules", discord.ChannelType.text), ("📢-announcements", discord.ChannelType.text), ("🎁-giveaways", discord.ChannelType.text)],
+        "💬 ▬▬ COMMUNITY ▬▬": [("🌿-garden-chat", discord.ChannelType.text), ("🤖-bot-commands", discord.ChannelType.text), ("🌌-memes", discord.ChannelType.text), ("🔊 Lounge", discord.ChannelType.voice), ("🔊 Gaming", discord.ChannelType.voice)],
+        "🌻 ▬▬ GARDEN GAMEPLAY ▬▬": [("🌾-flex-your-garden", discord.ChannelType.text), ("🫘-seed-market", discord.ChannelType.text), ("🤝-trading", discord.ChannelType.text), ("💡-garden-tips", discord.ChannelType.text)],
         "🎫 ▬▬ SUPPORT ▬▬": [("🎫-open-ticket", discord.ChannelType.text)]
     }
-
     for cat_name, channels in structure.items():
         category = await guild.create_category(cat_name)
         for ch_name, ch_type in channels:
             if ch_type == discord.ChannelType.text: await guild.create_text_channel(ch_name, category=category)
             elif ch_type == discord.ChannelType.voice: await guild.create_voice_channel(ch_name, category=category)
-
     try: await interaction.channel.send("✅ **Server Revamp complete!** 🌱")
     except Exception: pass
 
@@ -473,42 +473,34 @@ async def userinfo(interaction: discord.Interaction, member: discord.Member):
 async def membercount(interaction: discord.Interaction):
     await interaction.response.send_message(f"👥 This server has **{interaction.guild.member_count}** members!")
 
+# ════════════════════════════════════════════════════════════
+#  FUN & UTILITY BUNDLE (owner only)
+# ════════════════════════════════════════════════════════════
 @tree.command(name="ping", description="Check bot latency")
 @is_owner()
-async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message(f"🏓 Pong! `{round(bot.latency * 1000)}ms`")
+async def ping(interaction: discord.Interaction): await interaction.response.send_message(f"🏓 Pong! `{round(bot.latency * 1000)}ms`")
 
 @tree.command(name="coinflip", description="Flip a coin")
 @is_owner()
-async def coinflip(interaction: discord.Interaction):
-    result = random.choice(["Heads 🪙", "Tails 🪙"])
-    await interaction.response.send_message(f"🪙 The coin landed on: **{result}**!")
+async def coinflip(interaction: discord.Interaction): await interaction.response.send_message(f"🪙 The coin landed on: **{random.choice(['Heads 🪙', 'Tails 🪙'])}**!")
 
 @tree.command(name="dice", description="Roll a dice")
 @is_owner()
-async def dice(interaction: discord.Interaction, sides: int = 6):
-    result = random.randint(1, sides)
-    await interaction.response.send_message(f"🎲 You rolled a **{result}** (1-{sides})!")
+async def dice(interaction: discord.Interaction, sides: int = 6): await interaction.response.send_message(f"🎲 You rolled a **{random.randint(1, sides)}** (1-{sides})!")
 
 @tree.command(name="8ball", description="Ask the magic 8ball a question")
 @is_owner()
-async def eightball(interaction: discord.Interaction, question: str):
-    responses = ["Yes! ✅", "No ❌", "Maybe 🤔", "Definitely! 🎯", "Ask again later ⏳"]
-    await interaction.response.send_message(f"🎱 **Question:** {question}\n**Answer:** {random.choice(responses)}")
+async def eightball(interaction: discord.Interaction, question: str): await interaction.response.send_message(f"🎱 **Question:** {question}\n**Answer:** {random.choice(['Yes! ✅', 'No ❌', 'Maybe 🤔', 'Definitely! 🎯', 'Ask again later ⏳'])}")
 
 @tree.command(name="choose", description="Let the bot choose between options (separate with commas)")
 @is_owner()
-async def choose(interaction: discord.Interaction, options: str):
-    choices = [o.strip() for o in options.split(",")]
-    await interaction.response.send_message(f"🎯 I choose: **{random.choice(choices)}**!")
+async def choose(interaction: discord.Interaction, options: str): await interaction.response.send_message(f"🎯 I choose: **{random.choice([o.strip() for o in options.split(',')])}**!")
 
 @tree.command(name="poll", description="Create a poll")
 @is_owner()
 async def poll(interaction: discord.Interaction, question: str):
-    embed = discord.Embed(title=f"📊 Poll: {question}", color=discord.Color.blurple())
-    msg = await interaction.channel.send(embed=embed)
-    await msg.add_reaction("👍")
-    await msg.add_reaction("👎")
+    msg = await interaction.channel.send(embed=discord.Embed(title=f"📊 Poll: {question}", color=discord.Color.blurple()))
+    await msg.add_reaction("👍"); await msg.add_reaction("👎")
     await interaction.response.send_message("✅ Poll created!", ephemeral=True)
 
 @tree.command(name="say", description="Make the bot say something")
@@ -520,8 +512,7 @@ async def say(interaction: discord.Interaction, message: str):
 @tree.command(name="embed", description="Send an embed message")
 @is_owner()
 async def embed_cmd(interaction: discord.Interaction, title: str, description: str):
-    embed = discord.Embed(title=title, description=description, color=discord.Color.blurple())
-    await interaction.channel.send(embed=embed)
+    await interaction.channel.send(embed=discord.Embed(title=title, description=description, color=discord.Color.blurple()))
     await interaction.response.send_message("✅ Embed sent!", ephemeral=True)
 
 @tree.command(name="avatar", description="Get the avatar of a user")
@@ -535,8 +526,7 @@ async def avatar(interaction: discord.Interaction, member: discord.Member = None
 @tree.command(name="announce", description="Send an announcement")
 @is_owner()
 async def announce(interaction: discord.Interaction, channel: discord.TextChannel, message: str):
-    embed = discord.Embed(title="📢 Announcement", description=message, color=discord.Color.gold())
-    await channel.send(embed=embed)
+    await channel.send(embed=discord.Embed(title="📢 Announcement", description=message, color=discord.Color.gold()))
     await interaction.response.send_message("✅ Announcement sent!", ephemeral=True)
 
 @tree.command(name="uptime", description="Show bot uptime")
@@ -551,44 +541,34 @@ async def uptime(interaction: discord.Interaction):
 @is_owner()
 async def botinfo(interaction: discord.Interaction):
     embed = discord.Embed(title="🤖 Bot Info", color=discord.Color.blurple())
-    embed.add_field(name="Name", value=bot.user.name)
-    embed.add_field(name="Servers", value=len(bot.guilds))
+    embed.add_field(name="Name", value=bot.user.name); embed.add_field(name="Servers", value=len(bot.guilds))
     embed.set_thumbnail(url=bot.user.display_avatar.url)
     await interaction.response.send_message(embed=embed)
 
 # ════════════════════════════════════════════════════════════
-#  WEB SERVER & RUN SYSTEM (Optimized for Render)
+#  WEB SERVER & RUN SYSTEM (Render Mode)
 # ════════════════════════════════════════════════════════════
 app = Flask('')
 
 @app.route('/')
-def home():
-    return "Bot läuft 24/7!"
+def home(): return "Bot läuft 24/7!"
 
-def run():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
-
+def run(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
 def keep_alive():
     t = Thread(target=run)
     t.daemon = True
     t.start()
 
 def run_bot():
-    keep_alive() 
-    
+    keep_alive()
     while True:
         try:
             TOKEN = os.environ.get("DISCORD_TOKEN")
             if not TOKEN:
-                print("❌ FEHLER: 'DISCORD_TOKEN' Umgebungsvariable fehlt!")
                 time.sleep(10)
                 continue
-            
             bot.run(TOKEN)
-        except Exception as e:
-            print(f"Bot crashed: {e}")
-            print("Starte neu in 5 Sekunden...")
+        except Exception:
             time.sleep(5)
 
 if __name__ == "__main__":
