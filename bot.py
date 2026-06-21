@@ -6,6 +6,7 @@ import asyncio
 import random
 import datetime
 import os
+import io
 from flask import Flask
 from threading import Thread
 
@@ -16,7 +17,6 @@ class GardenBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # Registriert alle persistenten Buttons, damit sie auch nach einem Bot-Neustart funktionieren
         self.add_view(TicketView())
         self.add_view(CloseTicketView())
         self.add_view(MiddlemanTicketView())
@@ -50,6 +50,39 @@ def is_owner():
     return app_commands.check(predicate)
 
 # ════════════════════════════════════════════════════════════
+#  LOGGING FUNCTION (Saves Ticket Transcripts)
+# ════════════════════════════════════════════════════════════
+async def log_ticket_transcript(channel, ticket_type="Standard"):
+    guild = channel.guild
+    # Sucht nach einem Kanal namens "ticket-logs" oder erstellt ihn geheimen
+    log_channel = discord.utils.get(guild.text_channels, name="ticket-logs")
+    if not log_channel:
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        }
+        log_channel = await guild.create_text_channel("ticket-logs", overwrites=overwrites)
+
+    # Nachrichten sammeln
+    messages = []
+    async for message in channel.history(limit=None, oldest_first=True):
+        timestamp = message.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        messages.append(f"[{timestamp}] {message.author} ({message.author.id}): {message.content}")
+    
+    transcript_text = "\n".join(messages)
+    
+    # Datei im Speicher erstellen (ohne die Festplatte zu belasten)
+    file_data = io.BytesIO(transcript_text.encode("utf-8"))
+    discord_file = discord.File(fp=file_data, filename=f"transcript-{channel.name}.txt")
+    
+    embed = discord.Embed(
+        title=f"📄 Ticket Closed & Logged",
+        description=f"**Type:** {ticket_type}\n**Channel Name:** {channel.name}\n**Closed At:** {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC",
+        color=discord.Color.dark_grey()
+    )
+    await log_channel.send(embed=embed, file=discord_file)
+
+# ════════════════════════════════════════════════════════════
 #  STANDARD TICKET SYSTEM
 # ════════════════════════════════════════════════════════════
 class CloseTicketView(discord.ui.View):
@@ -65,7 +98,8 @@ class CloseTicketView(discord.ui.View):
 
     @discord.ui.button(label="🔒 Close Ticket", style=discord.ButtonStyle.red, custom_id="persistent_close_ticket")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("🔒 Closing ticket in 5 seconds...")
+        await interaction.response.send_message("🔒 Saving transcript and closing ticket in 5 seconds...")
+        await log_ticket_transcript(interaction.channel, "Support Ticket")
         await asyncio.sleep(5)
         await interaction.channel.delete()
 
@@ -111,7 +145,8 @@ class CloseMiddlemanTicketView(discord.ui.View):
 
     @discord.ui.button(label="🔒 Close Trade", style=discord.ButtonStyle.red, custom_id="persistent_close_mm")
     async def close_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("🔒 Closing this trade ticket in 5 seconds...")
+        await interaction.response.send_message("🔒 Saving trade transcript and closing ticket in 5 seconds...")
+        await log_ticket_transcript(interaction.channel, "Middleman Trade")
         await asyncio.sleep(5)
         await interaction.channel.delete()
 
@@ -164,21 +199,82 @@ async def middleman_ticket(interaction: discord.Interaction):
         ),
         color=discord.Color.blurple()
     )
-    embed.set_footer(
-        text=f"Powered by {interaction.client.user.name}", 
-        icon_url=interaction.client.user.display_avatar.url
-    )
-    
+    embed.set_footer(text=f"Powered by {interaction.client.user.name}", icon_url=interaction.client.user.display_avatar.url)
     await interaction.channel.send(embed=embed, view=MiddlemanTicketView())
     await interaction.response.send_message("✅ Middleman panel sent!", ephemeral=True)
 
 # ════════════════════════════════════════════════════════════
-#  HELP PANEL
+#  GIVEAWAY SYSTEM
+# ════════════════════════════════════════════════════════════
+@tree.command(name="giveaway_start", description="Start a new giveaway")
+@is_owner()
+async def giveaway_start(interaction: discord.Interaction, duration_minutes: int, winners_count: int, prize: str):
+    await interaction.response.send_message(f"🎉 Giveaway for **{prize}** started!", ephemeral=True)
+    
+    end_time = datetime.datetime.utcnow() + datetime.timedelta(minutes=duration_minutes)
+    embed = discord.Embed(
+        title="🎉 GIVEAWAY 🎉",
+        description=f"React with 🎉 to enter!\n\n**Prize:** {prize}\n**Winners:** {winners_count}\n**Ends:** <t:{int(end_time.timestamp())}:R>",
+        color=discord.Color.gold()
+    )
+    embed.set_footer(text="Good luck everyone!")
+    
+    msg = await interaction.channel.send(embed=embed)
+    await msg.add_reaction("🎉")
+    
+    await asyncio.sleep(duration_minutes * 60)
+    
+    # Nachricht frisch abrufen, um Reaktionen zu zählen
+    msg = await interaction.channel.fetch_message(msg.id)
+    reaction = discord.utils.get(msg.reactions, emoji="🎉")
+    users = [u async for u in reaction.users() if not u.bot]
+    
+    if len(users) == 0:
+        await interaction.channel.send(f"😔 The giveaway for **{prize}** ended, but nobody participated.")
+        return
+    
+    winners = random.sample(users, min(len(users), winners_count))
+    winner_mentions = ", ".join([w.mention for w in winners])
+    
+    end_embed = discord.Embed(
+        title="🎉 GIVEAWAY ENDED 🎉",
+        description=f"**Prize:** {prize}\n**Winners:** {winner_mentions}",
+        color=discord.Color.green()
+    )
+    await msg.edit(embed=end_embed)
+    await interaction.channel.send(f"🥳 Congratulations {winner_mentions}! You won **{prize}**! 🎉")
+
+@tree.command(name="giveaway_reroll", description="Reroll a new winner for a giveaway message ID")
+@is_owner()
+async def giveaway_reroll(interaction: discord.Interaction, message_id: str):
+    try:
+        msg = await interaction.channel.fetch_message(int(message_id))
+    except Exception:
+        await interaction.response.send_message("❌ Message ID not found in this channel.", ephemeral=True)
+        return
+
+    reaction = discord.utils.get(msg.reactions, emoji="🎉")
+    if not reaction:
+        await interaction.response.send_message("❌ No 🎉 reactions found on this message.", ephemeral=True)
+        return
+        
+    users = [u async for u in reaction.users() if not u.bot]
+    if len(users) == 0:
+        await interaction.response.send_message("❌ Nobody reacted to the giveaway.", ephemeral=True)
+        return
+        
+    winner = random.choice(users)
+    await interaction.response.send_message("🎲 Reroll complete!", ephemeral=True)
+    await interaction.channel.send(f"🎉 **New Reroll Winner:** {winner.mention}! Congratulations! 🥳")
+
+# ════════════════════════════════════════════════════════════
+#  HELP PANEL (UPDATED)
 # ════════════════════════════════════════════════════════════
 @tree.command(name="help", description="Show all available bot commands")
 async def help_cmd(interaction: discord.Interaction):
     embed = discord.Embed(title="🌿 Garden Bot Help Panel", description="Full list of all slash commands.", color=discord.Color.blurple())
     embed.add_field(name="🛡️ Moderation", value="`/ban`, `/unban`, `/kick`, `/mute`, `/unmute`, `/warn`, `/warnings`, `/clearwarnings`, `/purge`, `/slowmode`, `/lock`, `/unlock`, `/nickname`, `/addrole`, `/removerole`", inline=False)
+    embed.add_field(name="🎉 Giveaways", value="`/giveaway_start` *(Start giveaways)*, `/giveaway_reroll` *(Reroll winners)*", inline=False)
     embed.add_field(name="🏗️ Server Setup", value="`/revamp`, `/deleteallchannels`, `/createchannel`, `/deletechannel`, `/createrole`, `/deleterole`", inline=False)
     embed.add_field(name="🎫 Systems & Fun", value="`/ticket` *(Support)*, `/middleman_ticket` *(Safe Trades)*, `/verify`, `/hit`, `/poll`, `/say`, `/embed`, `/avatar`, `/announce`, `/serverinfo`, `/userinfo`, `/membercount`, `/ping`, `/coinflip`, `/dice`, `/8ball`, `/choose`, `/uptime`, `/botinfo`", inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
