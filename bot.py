@@ -9,9 +9,19 @@ import os
 from flask import Flask
 from threading import Thread
 
-# WICHTIG: Stelle sicher, dass "Privileged Gateway Intents" im Discord Developer Portal aktiviert sind!
 intents = discord.Intents.all()
-bot = commands.Bot(command_prefix="!", intents=intents)
+
+# Wir erstellen eine eigene Bot-Klasse, um die Ticket-Buttons permanent zu registrieren
+class GardenBot(commands.Bot):
+    def __init__(self):
+        super().__init__(command_prefix="!", intents=intents)
+
+    async def setup_hook(self):
+        # Das hier sorgt dafür, dass die Ticket-Buttons IMMER funktionieren, auch nach einem Neustart!
+        self.add_view(TicketView())
+        self.add_view(CloseTicketView())
+
+bot = GardenBot()
 tree = bot.tree
 
 # ─── SPAM TRACKER ───────────────────────────────────────────
@@ -41,6 +51,63 @@ def is_owner():
             return False
         return True
     return app_commands.check(predicate)
+
+# ════════════════════════════════════════════════════════════
+#  PERSISTENT TICKET VIEWS (FIXED)
+# ════════════════════════════════════════════════════════════
+class CloseTicketView(discord.ui.View):
+    def __init__(self):
+        # timeout=None ist zwingend notwendig für dauerhafte Buttons!
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="👤 Claim", style=discord.ButtonStyle.green, custom_id="persistent_claim_ticket")
+    async def claim_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        button.label = f"✅ Claimed by {interaction.user.name}"
+        button.disabled = True
+        await interaction.message.edit(view=self)
+        await interaction.response.send_message(f"👤 {interaction.user.mention} has claimed this ticket!")
+
+    @discord.ui.button(label="🔒 Close Ticket", style=discord.ButtonStyle.red, custom_id="persistent_close_ticket")
+    async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("🔒 Closing ticket in 5 seconds...")
+        await asyncio.sleep(5)
+        await interaction.channel.delete()
+
+class TicketView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🎫 Open Ticket", style=discord.ButtonStyle.blurple, custom_id="persistent_open_ticket")
+    async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        user = interaction.user
+        
+        existing = discord.utils.get(guild.text_channels, name=f"ticket-{user.name.lower()}")
+        if existing:
+            await interaction.response.send_message(f"❌ You already have an open ticket: {existing.mention}", ephemeral=True)
+            return
+            
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            guild.owner: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+        }
+        
+        category = discord.utils.get(guild.categories, name="TICKETS")
+        if not category: 
+            category = await guild.create_category("TICKETS")
+            
+        channel = await guild.create_text_channel(f"ticket-{user.name}", overwrites=overwrites, category=category)
+        
+        embed = discord.Embed(
+            title="🎫 New Ticket",
+            description=f"Hello {user.mention}! 👋\nSupport will be with you shortly.\n\nPlease describe your issue below.",
+            color=discord.Color.blurple()
+        )
+        embed.set_footer(text="Click 'Close Ticket' when your issue is resolved.")
+        await channel.send(embed=embed, view=CloseTicketView())
+        await interaction.response.send_message(f"✅ Your ticket has been created: {channel.mention}", ephemeral=True)
 
 # ════════════════════════════════════════════════════════════
 #  EVENTS
@@ -83,9 +150,7 @@ async def on_member_remove(member):
 
 @bot.event
 async def on_message(message):
-    if message.author.bot:
-        return
-    if message.guild is None:
+    if message.author.bot or message.guild is None:
         return
     if message.author.id == message.guild.owner_id:
         await bot.process_commands(message)
@@ -135,7 +200,23 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # ════════════════════════════════════════════════════════════
-#  VERIFY SYSTEM
+#  HELP COMMAND (NEW)
+# ════════════════════════════════════════════════════════════
+@tree.command(name="help", description="Show all available bot commands")
+async def help_cmd(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="🌿 Garden Bot Help Panel", 
+        description="Here is a full list of all available slash commands. Note: Admin commands require Server Owner status.", 
+        color=discord.Color.blurple()
+    )
+    embed.add_field(name="🛡️ Moderation", value="`/ban`, `/unban`, `/kick`, `/mute`, `/unmute`, `/warn`, `/warnings`, `/clearwarnings`, `/purge`, `/slowmode`, `/lock`, `/unlock`, `/nickname`, `/addrole`, `/removerole`", inline=False)
+    embed.add_field(name="🏗️ Server Setup", value="`/revamp` *(Setup Garden Channels)*, `/deleteallchannels`, `/createchannel`, `/deletechannel`, `/createrole`, `/deleterole`", inline=False)
+    embed.add_field(name="🎫 Systems & Fun", value="`/ticket` *(Send Ticket Panel)*, `/verify` *(Verify Menu)*, `/hit` *(Business Offer)*, `/poll`, `/say`, `/embed`, `/avatar`, `/announce`, `/serverinfo`, `/userinfo`, `/membercount`, `/ping`, `/coinflip`, `/dice`, `/8ball`, `/choose`, `/uptime`, `/botinfo`", inline=False)
+    embed.set_footer(text=f"Requested by {interaction.user.name}")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+# ════════════════════════════════════════════════════════════
+#  OTHER COMMANDS
 # ════════════════════════════════════════════════════════════
 @tree.command(name="verify", description="Verify yourself on the server")
 async def verify(interaction: discord.Interaction):
@@ -150,57 +231,6 @@ async def verify(interaction: discord.Interaction):
     view.add_item(no_button)
     await interaction.response.send_message("👋 **Welcome!**\nDo you agree to the server rules and want to verify yourself?", view=view, ephemeral=True)
 
-# ════════════════════════════════════════════════════════════
-#  TICKET SYSTEM
-# ════════════════════════════════════════════════════════════
-class CloseTicketView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="👤 Claim", style=discord.ButtonStyle.green, custom_id="claim_ticket")
-    async def claim_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        button.label = f"✅ Claimed by {interaction.user.name}"
-        button.disabled = True
-        await interaction.message.edit(view=self)
-        await interaction.response.send_message(f"👤 {interaction.user.mention} has claimed this ticket!")
-
-    @discord.ui.button(label="🔒 Close Ticket", style=discord.ButtonStyle.red, custom_id="close_ticket")
-    async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("🔒 Closing ticket in 5 seconds...")
-        await asyncio.sleep(5)
-        await interaction.channel.delete()
-
-class TicketView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="🎫 Open Ticket", style=discord.ButtonStyle.blurple, custom_id="open_ticket")
-    async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        guild = interaction.guild
-        user = interaction.user
-        existing = discord.utils.get(guild.text_channels, name=f"ticket-{user.name.lower()}")
-        if existing:
-            await interaction.response.send_message(f"❌ You already have an open ticket: {existing.mention}", ephemeral=True)
-            return
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            guild.owner: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-        }
-        category = discord.utils.get(guild.categories, name="TICKETS")
-        if not category: category = await guild.create_category("TICKETS")
-        channel = await guild.create_text_channel(f"ticket-{user.name}", overwrites=overwrites, category=category)
-        
-        embed = discord.Embed(
-            title="🎫 New Ticket",
-            description=f"Hello {user.mention}! 👋\nSupport will be with you shortly.\n\nPlease describe your issue below.",
-            color=discord.Color.blurple()
-        )
-        embed.set_footer(text="Click 'Close Ticket' when your issue is resolved.")
-        await channel.send(embed=embed, view=CloseTicketView())
-        await interaction.response.send_message(f"✅ Your ticket has been created: {channel.mention}", ephemeral=True)
-
 @tree.command(name="ticket", description="Send the ticket panel to this channel")
 @is_owner()
 async def ticket(interaction: discord.Interaction):
@@ -213,38 +243,27 @@ async def ticket(interaction: discord.Interaction):
     await interaction.channel.send(embed=embed, view=TicketView())
     await interaction.response.send_message("✅ Ticket panel sent!", ephemeral=True)
 
-# ════════════════════════════════════════════════════════════
-#  HIT COMMAND 
-# ════════════════════════════════════════════════════════════
 class HitConfirmView(discord.ui.View):
     def __init__(self, target: discord.Member):
         super().__init__(timeout=60)
         self.target = target
-
     @discord.ui.button(label="✅ Yes, I'm in!", style=discord.ButtonStyle.green)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         for item in self.children: item.disabled = True
         await interaction.message.edit(view=self)
-        embed = discord.Embed(title="💰 Welcome to the Team!", description=f"✅ {interaction.user.mention} is **in**!\nYou will be contacted soon.", color=discord.Color.green())
-        await interaction.response.send_message(embed=embed)
-
+        await interaction.response.send_message(embed=discord.Embed(title="💰 Welcome!", description=f"✅ {interaction.user.mention} is **in**!", color=discord.Color.green()))
     @discord.ui.button(label="❌ No, I'm not interested", style=discord.ButtonStyle.red)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         for item in self.children: item.disabled = True
         await interaction.message.edit(view=self)
-        embed = discord.Embed(title="😔 Maybe next time...", description=f"❌ {interaction.user.mention} declined the offer.", color=discord.Color.red())
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=discord.Embed(title="😔 Declined", description=f"❌ {interaction.user.mention} declined.", color=discord.Color.red()))
 
 @tree.command(name="hit", description="Send someone a special business offer")
 async def hit(interaction: discord.Interaction, member: discord.Member):
     embed = discord.Embed(title="💸 EXCLUSIVE BUSINESS OFFER 💸", color=discord.Color.gold())
     embed.add_field(name="📩 Hey there!", value=f"👋 Offer for {member.mention}.\nJoin us and make some serious profit!", inline=False)
-    view = HitConfirmView(target=member)
-    await interaction.response.send_message(f"{member.mention}", embed=embed, view=view)
+    await interaction.response.send_message(f"{member.mention}", embed=embed, view=HitConfirmView(target=member))
 
-# ════════════════════════════════════════════════════════════
-#  MODERATION COMMANDS (owner only)
-# ════════════════════════════════════════════════════════════
 @tree.command(name="ban", description="Ban a member")
 @is_owner()
 async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
@@ -360,9 +379,6 @@ async def removerole(interaction: discord.Interaction, member: discord.Member, r
     await member.remove_roles(role)
     await interaction.response.send_message(f"✅ Role **{role.name}** removed from **{member}**.")
 
-# ════════════════════════════════════════════════════════════
-#  SERVER MANAGEMENT COMMANDS (owner only)
-# ════════════════════════════════════════════════════════════
 @tree.command(name="revamp", description="Setup Grow a Garden 2 channel structure")
 @is_owner()
 async def revamp(interaction: discord.Interaction):
@@ -457,9 +473,6 @@ async def userinfo(interaction: discord.Interaction, member: discord.Member):
 async def membercount(interaction: discord.Interaction):
     await interaction.response.send_message(f"👥 This server has **{interaction.guild.member_count}** members!")
 
-# ════════════════════════════════════════════════════════════
-#  FUN COMMANDS (owner only)
-# ════════════════════════════════════════════════════════════
 @tree.command(name="ping", description="Check bot latency")
 @is_owner()
 async def ping(interaction: discord.Interaction):
@@ -562,7 +575,7 @@ def keep_alive():
     t.start()
 
 def run_bot():
-    keep_alive() # Webserver startet sicher genau EINMAL vor der Schleife
+    keep_alive() 
     
     while True:
         try:
