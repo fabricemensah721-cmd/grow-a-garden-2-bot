@@ -37,4 +37,7 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-bot.run("MTUxNzgyMDg2MTQzNDgyMjc2Nw.GlH0wY.IlpMTqTfOVqB6OOXw84Zw3eHUeFn3OWKFwiF2g")
+import os
+
+TOKEN = os.getenv("DISCORD_TOKEN")
+bot.run(TOKEN)
