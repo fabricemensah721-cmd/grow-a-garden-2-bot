@@ -1,11 +1,12 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
+from discord.ui import Button, View, Select
 import time
 import asyncio
 import random
 import datetime
-import os  # Wichtig für Render Port-Abfrage
+import os  # Wichtig für Render Port-Abfrage & Token
 from flask import Flask
 from threading import Thread
 
@@ -26,6 +27,10 @@ BAD_WORDS = ["badword1", "badword2", "badword3"]  # Add your bad words here
 MAX_MENTIONS = 5
 MAX_CAPS_PERCENT = 70
 INVITE_PATTERN = "discord.gg"
+
+# ─── TICKET CONFIGURATION ───────────────────────────────────
+# TODO: Replace 123456789012345678 with your actual Admin/Staff Role ID so moderators can see tickets
+STAFF_ROLE_ID = 123456789012345678  
 
 # ════════════════════════════════════════════════════════════
 #  OWNER-ONLY CHECK
@@ -77,6 +82,9 @@ async def on_member_remove(member):
 @bot.event
 async def on_message(message):
     if message.author.bot:
+        return
+
+    if message.guild is None:
         return
 
     # Owner bypasses all auto-mod
@@ -160,79 +168,102 @@ async def verify(interaction: discord.Interaction):
     )
 
 # ════════════════════════════════════════════════════════════
-#  TICKET SYSTEM — FIXED
+#  HIGH-END TICKET SYSTEM (ENGLISH & UPDATED)
 # ════════════════════════════════════════════════════════════
+
+class TicketDropdown(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="General Support", description="Need help with the bot or server?", emoji="🛠️"),
+            discord.SelectOption(label="Report a Player", description="Report toxic behavior or rule breakers.", emoji="⚠️"),
+            discord.SelectOption(label="Question / Inquiry", description="General questions about the project.", emoji="❓")
+        ]
+        super().__init__(placeholder="Choose the category for your ticket...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        user = interaction.user
+        
+        # Check if user already has an active ticket channel
+        existing = discord.utils.get(guild.text_channels, name=f"ticket-{user.name.lower()}")
+        if existing:
+            await interaction.followup.send(f"❌ You already have an open ticket: {existing.mention}", ephemeral=True)
+            return
+        
+        staff_role = guild.get_role(STAFF_ROLE_ID)
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            user: discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True, attach_files=True),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+        }
+        if staff_role:
+            overwrites[staff_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True, attach_files=True)
+
+        category_name = self.values[0]
+        category = discord.utils.get(guild.categories, name="TICKETS")
+        if not category:
+            category = await guild.create_category("TICKETS")
+
+        ticket_channel = await guild.create_text_channel(
+            name=f"ticket-{user.name}",
+            overwrites=overwrites,
+            category=category
+        )
+
+        embed = discord.Embed(
+            title=f"🎫 Ticket Opened - {category_name}",
+            description=f"Hello {user.mention},\nThank you for reaching out. Support staff will be with you shortly.\n\nPlease describe your issue below.",
+            color=discord.Color.green()
+        )
+        embed.set_footer(text="Click the buttons below to manage the ticket.")
+        
+        close_view = CloseTicketView()
+        await ticket_channel.send(content=f"{user.mention} | {staff_role.mention if staff_role else ''}", embed=embed, view=close_view)
+        await interaction.followup.send(f"✅ Your ticket has been created here: {ticket_channel.mention}", ephemeral=True)
+
 
 class CloseTicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="👤 Claim", style=discord.ButtonStyle.green, custom_id="claim_ticket")
+    @discord.ui.button(label="Claim", style=discord.ButtonStyle.green, custom_id="claim_ticket", emoji="👤")
     async def claim_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        button.label = f"✅ Claimed by {interaction.user.name}"
+        button.label = f"Claimed by {interaction.user.name}"
         button.disabled = True
         await interaction.message.edit(view=self)
         await interaction.response.send_message(f"👤 {interaction.user.mention} has claimed this ticket!")
 
-    @discord.ui.button(label="🔒 Close Ticket", style=discord.ButtonStyle.red, custom_id="close_ticket")
+    @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.danger, custom_id="close_ticket", emoji="🔒")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("🔒 Closing ticket in 5 seconds...")
+        await interaction.response.send_message("🔒 This ticket will be deleted in 5 seconds...")
         await asyncio.sleep(5)
         await interaction.channel.delete()
 
 
-class TicketView(discord.ui.View):
+class TicketSetupView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="🎫 Open Ticket", style=discord.ButtonStyle.blurple, custom_id="open_ticket")
-    async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        guild = interaction.guild
-        user = interaction.user
-
-        existing = discord.utils.get(guild.text_channels, name=f"ticket-{user.name.lower()}")
-        if existing:
-            await interaction.response.send_message(f"❌ You already have an open ticket: {existing.mention}", ephemeral=True)
-            return
-
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            guild.owner: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-        }
-
-        category = discord.utils.get(guild.categories, name="TICKETS")
-        if not category:
-            category = await guild.create_category("TICKETS")
-
-        channel = await guild.create_text_channel(
-            f"ticket-{user.name}",
-            overwrites=overwrites,
-            category=category
-        )
-
-        close_view = CloseTicketView()
-        embed = discord.Embed(
-            title="🎫 New Ticket",
-            description=f"Hello {user.mention}! 👋\nSupport will be with you shortly.\n\nPlease describe your issue below.",
-            color=discord.Color.blurple()
-        )
-        embed.set_footer(text="Click 'Close Ticket' when your issue is resolved.")
-        await channel.send(embed=embed, view=close_view)
-        await interaction.response.send_message(f"✅ Your ticket has been created: {channel.mention}", ephemeral=True)
+    @discord.ui.button(label="Create Ticket", style=discord.ButtonStyle.success, custom_id="setup_ticket_btn", emoji="📩")
+    async def create_ticket_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = View(timeout=60)
+        view.add_item(TicketDropdown())
+        await interaction.response.send_message("Please select a topic for your ticket:", view=view, ephemeral=True)
 
 
-@tree.command(name="ticket", description="Send the ticket panel to this channel")
+@tree.command(name="ticket", description="Send the enhanced ticket panel to this channel")
 @is_owner()
 async def ticket(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="🎫 Support Tickets",
-        description="Need help? Click the button below to open a ticket!\nOur support team will assist you as soon as possible.",
-        color=discord.Color.blurple()
+        title="📩 Support Helpdesk",
+        description="Need assistance? Click the button below to open an official support ticket.\nOur team will assist you as soon as possible.\n\n**Rules:**\n• Do not spam tickets.\n• Be descriptive about your issue.",
+        color=discord.Color.blue()
     )
-    embed.set_footer(text="Please only open a ticket if you have a real issue.")
-    await interaction.channel.send(embed=embed, view=TicketView())
+    embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
+    embed.set_footer(text="Powered by Garden Bot")
+    
+    await interaction.channel.send(embed=embed, view=TicketSetupView())
     await interaction.response.send_message("✅ Ticket panel sent!", ephemeral=True)
 
 # ════════════════════════════════════════════════════════════
@@ -601,7 +632,7 @@ async def poll(interaction: discord.Interaction, question: str):
     msg = await interaction.channel.send(embed=embed)
     await msg.add_reaction("👍")
     await msg.add_reaction("👎")
-    await interaction.response.send_message("Poll created!", ephemeral=True)
+    await interaction.response.send_message("✅ Poll created!", ephemeral=True)
 
 @tree.command(name="say", description="Make the bot say something")
 @is_owner()
@@ -663,10 +694,9 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot läuft 24/7 auf Render!"
+    return "Bot is running 24/7 on Render!"
 
 def run():
-    # Zieht sich den Port dynamisch von Render, um Timeout-Fehler zu vermeiden
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
@@ -675,18 +705,17 @@ def keep_alive():
     t.start()
 
 def run_bot():
-    while True:
-        try:
-            bot.start_time = datetime.datetime.utcnow()
-            # Startet den Flask-Server, den Render zum Überleben braucht
-            keep_alive() 
-            # Startet deinen Bot über die sichere Umgebungsvariable
-            TOKEN = os.getenv("DISCORD_TOKEN")
-            bot.run(TOKEN)
-        except Exception as e:
-            print(f"Bot crashed: {e}")
-            print("Restarting in 5 seconds...")
-            time.sleep(5)
+    bot.start_time = datetime.datetime.utcnow()
+    keep_alive() 
+    
+    # Secure token storage from Render environment variables
+    TOKEN = os.getenv("DISCORD_TOKEN")
+    if not TOKEN:
+        print("❌ Error: DISCORD_TOKEN variable is completely missing in Render Environment Settings!")
+        return
+    
+    bot.run(TOKEN)
 
-run_bot()
+if __name__ == "__main__":
+    run_bot()
   
