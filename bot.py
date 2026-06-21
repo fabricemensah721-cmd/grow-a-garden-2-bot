@@ -1,15 +1,15 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-from discord.ui import Button, View, Select
 import time
 import asyncio
 import random
 import datetime
-import os  # Wichtig für Render Port-Abfrage & Token
+import os
 from flask import Flask
 from threading import Thread
 
+# WICHTIG: Stelle sicher, dass "Privileged Gateway Intents" im Discord Developer Portal aktiviert sind!
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
@@ -23,19 +23,14 @@ SPAM_ZEITRAUM = 5
 warnings = {}
 
 # ─── AUTO-MOD SETTINGS ──────────────────────────────────────
-BAD_WORDS = ["badword1", "badword2", "badword3"]  # Add your bad words here
+BAD_WORDS = ["badword1", "badword2", "badword3"]
 MAX_MENTIONS = 5
 MAX_CAPS_PERCENT = 70
 INVITE_PATTERN = "discord.gg"
 
-# ─── TICKET CONFIGURATION ───────────────────────────────────
-# TODO: Replace 123456789012345678 with your actual Admin/Staff Role ID so moderators can see tickets
-STAFF_ROLE_ID = 123456789012345678  
-
 # ════════════════════════════════════════════════════════════
 #  OWNER-ONLY CHECK
 # ════════════════════════════════════════════════════════════
-
 def is_owner():
     async def predicate(interaction: discord.Interaction) -> bool:
         if interaction.guild is None:
@@ -50,12 +45,19 @@ def is_owner():
 # ════════════════════════════════════════════════════════════
 #  EVENTS
 # ════════════════════════════════════════════════════════════
-
 @bot.event
 async def on_ready():
-    await tree.sync()
+    if not hasattr(bot, 'start_time'):
+        bot.start_time = datetime.datetime.utcnow()
+    
+    try:
+        await tree.sync()
+        print("Slash Commands erfolgreich synchronisiert!")
+    except Exception as e:
+        print(f"Fehler beim Syncen der Commands: {e}")
+
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="the server 👀"))
-    print(f"Bot is online: {bot.user}")
+    print(f"Bot ist online als: {bot.user}")
 
 @bot.event
 async def on_member_join(member):
@@ -83,11 +85,8 @@ async def on_member_remove(member):
 async def on_message(message):
     if message.author.bot:
         return
-
     if message.guild is None:
         return
-
-    # Owner bypasses all auto-mod
     if message.author.id == message.guild.owner_id:
         await bot.process_commands(message)
         return
@@ -96,25 +95,21 @@ async def on_message(message):
     jetzt = time.time()
     content = message.content
 
-    # ── Auto-Mod: Bad Words ──────────────────────────────────
     if any(word in content.lower() for word in BAD_WORDS):
         await message.delete()
         await message.channel.send(f"⚠️ {message.author.mention} Bad language is not allowed!", delete_after=5)
         return
 
-    # ── Auto-Mod: Discord Invites ────────────────────────────
     if INVITE_PATTERN in content.lower():
         await message.delete()
         await message.channel.send(f"⚠️ {message.author.mention} Posting invite links is not allowed!", delete_after=5)
         return
 
-    # ── Auto-Mod: Mass Mentions ──────────────────────────────
     if len(message.mentions) >= MAX_MENTIONS:
         await message.delete()
         await message.channel.send(f"⚠️ {message.author.mention} Mass mentioning is not allowed!", delete_after=5)
         return
 
-    # ── Auto-Mod: Caps Lock ──────────────────────────────────
     if len(content) > 10:
         caps = sum(1 for c in content if c.isupper())
         if (caps / len(content)) * 100 >= MAX_CAPS_PERCENT:
@@ -122,7 +117,6 @@ async def on_message(message):
             await message.channel.send(f"⚠️ {message.author.mention} Please don't use excessive caps!", delete_after=5)
             return
 
-    # ── Anti-Spam ────────────────────────────────────────────
     if user_id not in spam_tracker:
         spam_tracker[user_id] = []
     spam_tracker[user_id] = [t for t in spam_tracker[user_id] if jetzt - t < SPAM_ZEITRAUM]
@@ -141,135 +135,87 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # ════════════════════════════════════════════════════════════
-#  VERIFY SYSTEM (everyone can use)
+#  VERIFY SYSTEM
 # ════════════════════════════════════════════════════════════
-
 @tree.command(name="verify", description="Verify yourself on the server")
 async def verify(interaction: discord.Interaction):
     view = discord.ui.View()
     yes_button = discord.ui.Button(label="✅ Yes", style=discord.ButtonStyle.green)
     no_button = discord.ui.Button(label="❌ No", style=discord.ButtonStyle.red)
-
-    async def yes_callback(i):
-        await i.response.send_message("✅ You have been verified! Welcome!", ephemeral=True)
-
-    async def no_callback(i):
-        await i.response.send_message("❌ Verification cancelled.", ephemeral=True)
-
+    async def yes_callback(i): await i.response.send_message("✅ You have been verified! Welcome!", ephemeral=True)
+    async def no_callback(i): await i.response.send_message("❌ Verification cancelled.", ephemeral=True)
     yes_button.callback = yes_callback
     no_button.callback = no_callback
     view.add_item(yes_button)
     view.add_item(no_button)
-
-    await interaction.response.send_message(
-        "👋 **Welcome!**\nDo you agree to the server rules and want to verify yourself?",
-        view=view,
-        ephemeral=True
-    )
+    await interaction.response.send_message("👋 **Welcome!**\nDo you agree to the server rules and want to verify yourself?", view=view, ephemeral=True)
 
 # ════════════════════════════════════════════════════════════
-#  HIGH-END TICKET SYSTEM (ENGLISH & UPDATED)
+#  TICKET SYSTEM
 # ════════════════════════════════════════════════════════════
-
-class TicketDropdown(discord.ui.Select):
-    def __init__(self):
-        options = [
-            discord.SelectOption(label="General Support", description="Need help with the bot or server?", emoji="🛠️"),
-            discord.SelectOption(label="Report a Player", description="Report toxic behavior or rule breakers.", emoji="⚠️"),
-            discord.SelectOption(label="Question / Inquiry", description="General questions about the project.", emoji="❓")
-        ]
-        super().__init__(placeholder="Choose the category for your ticket...", min_values=1, max_values=1, options=options)
-
-    async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        guild = interaction.guild
-        user = interaction.user
-        
-        # Check if user already has an active ticket channel
-        existing = discord.utils.get(guild.text_channels, name=f"ticket-{user.name.lower()}")
-        if existing:
-            await interaction.followup.send(f"❌ You already have an open ticket: {existing.mention}", ephemeral=True)
-            return
-        
-        staff_role = guild.get_role(STAFF_ROLE_ID)
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            user: discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True, attach_files=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-        }
-        if staff_role:
-            overwrites[staff_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True, attach_files=True)
-
-        category_name = self.values[0]
-        category = discord.utils.get(guild.categories, name="TICKETS")
-        if not category:
-            category = await guild.create_category("TICKETS")
-
-        ticket_channel = await guild.create_text_channel(
-            name=f"ticket-{user.name}",
-            overwrites=overwrites,
-            category=category
-        )
-
-        embed = discord.Embed(
-            title=f"🎫 Ticket Opened - {category_name}",
-            description=f"Hello {user.mention},\nThank you for reaching out. Support staff will be with you shortly.\n\nPlease describe your issue below.",
-            color=discord.Color.green()
-        )
-        embed.set_footer(text="Click the buttons below to manage the ticket.")
-        
-        close_view = CloseTicketView()
-        await ticket_channel.send(content=f"{user.mention} | {staff_role.mention if staff_role else ''}", embed=embed, view=close_view)
-        await interaction.followup.send(f"✅ Your ticket has been created here: {ticket_channel.mention}", ephemeral=True)
-
-
 class CloseTicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Claim", style=discord.ButtonStyle.green, custom_id="claim_ticket", emoji="👤")
+    @discord.ui.button(label="👤 Claim", style=discord.ButtonStyle.green, custom_id="claim_ticket")
     async def claim_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        button.label = f"Claimed by {interaction.user.name}"
+        button.label = f"✅ Claimed by {interaction.user.name}"
         button.disabled = True
         await interaction.message.edit(view=self)
         await interaction.response.send_message(f"👤 {interaction.user.mention} has claimed this ticket!")
 
-    @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.danger, custom_id="close_ticket", emoji="🔒")
+    @discord.ui.button(label="🔒 Close Ticket", style=discord.ButtonStyle.red, custom_id="close_ticket")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("🔒 This ticket will be deleted in 5 seconds...")
+        await interaction.response.send_message("🔒 Closing ticket in 5 seconds...")
         await asyncio.sleep(5)
         await interaction.channel.delete()
 
-
-class TicketSetupView(discord.ui.View):
+class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Create Ticket", style=discord.ButtonStyle.success, custom_id="setup_ticket_btn", emoji="📩")
-    async def create_ticket_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        view = View(timeout=60)
-        view.add_item(TicketDropdown())
-        await interaction.response.send_message("Please select a topic for your ticket:", view=view, ephemeral=True)
+    @discord.ui.button(label="🎫 Open Ticket", style=discord.ButtonStyle.blurple, custom_id="open_ticket")
+    async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        user = interaction.user
+        existing = discord.utils.get(guild.text_channels, name=f"ticket-{user.name.lower()}")
+        if existing:
+            await interaction.response.send_message(f"❌ You already have an open ticket: {existing.mention}", ephemeral=True)
+            return
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            guild.owner: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+        }
+        category = discord.utils.get(guild.categories, name="TICKETS")
+        if not category: category = await guild.create_category("TICKETS")
+        channel = await guild.create_text_channel(f"ticket-{user.name}", overwrites=overwrites, category=category)
+        
+        embed = discord.Embed(
+            title="🎫 New Ticket",
+            description=f"Hello {user.mention}! 👋\nSupport will be with you shortly.\n\nPlease describe your issue below.",
+            color=discord.Color.blurple()
+        )
+        embed.set_footer(text="Click 'Close Ticket' when your issue is resolved.")
+        await channel.send(embed=embed, view=CloseTicketView())
+        await interaction.response.send_message(f"✅ Your ticket has been created: {channel.mention}", ephemeral=True)
 
-
-@tree.command(name="ticket", description="Send the enhanced ticket panel to this channel")
+@tree.command(name="ticket", description="Send the ticket panel to this channel")
 @is_owner()
 async def ticket(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="📩 Support Helpdesk",
-        description="Need assistance? Click the button below to open an official support ticket.\nOur team will assist you as soon as possible.\n\n**Rules:**\n• Do not spam tickets.\n• Be descriptive about your issue.",
-        color=discord.Color.blue()
+        title="🎫 Support Tickets",
+        description="Need help? Click the button below to open a ticket!\nOur support team will assist you as soon as possible.",
+        color=discord.Color.blurple()
     )
-    embed.set_thumbnail(url=interaction.guild.icon.url if interaction.guild.icon else None)
-    embed.set_footer(text="Powered by Garden Bot")
-    
-    await interaction.channel.send(embed=embed, view=TicketSetupView())
+    embed.set_footer(text="Please only open a ticket if you have a real issue.")
+    await interaction.channel.send(embed=embed, view=TicketView())
     await interaction.response.send_message("✅ Ticket panel sent!", ephemeral=True)
 
 # ════════════════════════════════════════════════════════════
-#  HIT COMMAND — SCAM REPORT
+#  HIT COMMAND 
 # ════════════════════════════════════════════════════════════
-
 class HitConfirmView(discord.ui.View):
     def __init__(self, target: discord.Member):
         super().__init__(timeout=60)
@@ -277,78 +223,28 @@ class HitConfirmView(discord.ui.View):
 
     @discord.ui.button(label="✅ Yes, I'm in!", style=discord.ButtonStyle.green)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        for item in self.children:
-            item.disabled = True
+        for item in self.children: item.disabled = True
         await interaction.message.edit(view=self)
-        embed = discord.Embed(
-            title="💰 Welcome to the Team!",
-            description=f"✅ {interaction.user.mention} is **in**!\n\nYou will be contacted soon with further instructions. Get ready to make some serious profit. 💵",
-            color=discord.Color.green()
-        )
+        embed = discord.Embed(title="💰 Welcome to the Team!", description=f"✅ {interaction.user.mention} is **in**!\nYou will be contacted soon.", color=discord.Color.green())
         await interaction.response.send_message(embed=embed)
 
     @discord.ui.button(label="❌ No, I'm not interested", style=discord.ButtonStyle.red)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        for item in self.children:
-            item.disabled = True
+        for item in self.children: item.disabled = True
         await interaction.message.edit(view=self)
-        embed = discord.Embed(
-            title="😔 Maybe next time...",
-            description=f"❌ {interaction.user.mention} declined the offer.\n\nIf you change your mind, you know where to find us. 💸",
-            color=discord.Color.red()
-        )
+        embed = discord.Embed(title="😔 Maybe next time...", description=f"❌ {interaction.user.mention} declined the offer.", color=discord.Color.red())
         await interaction.response.send_message(embed=embed)
-
 
 @tree.command(name="hit", description="Send someone a special business offer")
 async def hit(interaction: discord.Interaction, member: discord.Member):
-    embed = discord.Embed(
-        title="💸 EXCLUSIVE BUSINESS OFFER 💸",
-        color=discord.Color.gold()
-    )
-    embed.add_field(name="📩 Hey there!", value=(
-        f"👋 **01** — Hey {member.mention}, we noticed you!\n"
-        f"💰 **02** — We have a very special offer for you\n"
-        f"📈 **03** — You could be making way more money\n"
-        f"🤑 **04** — Our team earns big profits every single day\n"
-        f"💵 **05** — No special skills required to join us\n"
-        f"🔥 **06** — This is a limited opportunity, don't miss it\n"
-        f"📊 **07** — Our members make profit on every deal\n"
-        f"🎯 **08** — You only need a few minutes per day\n"
-        f"💎 **09** — The more you participate, the more you earn\n"
-        f"🚀 **10** — We have been doing this for a long time\n"
-        f"🧠 **11** — Our strategy is simple but very effective\n"
-        f"👑 **12** — Top earners in our team make thousands\n"
-        f"📦 **13** — We handle everything, you just collect profit\n"
-        f"🤝 **14** — This is a trusted and proven method\n"
-        f"💬 **15** — Many people have already joined and succeeded\n"
-    ), inline=False)
-    embed.add_field(name="🔐 Why Join Us?", value=(
-        f"✅ **16** — 100% profit on every operation\n"
-        f"✅ **17** — You stay anonymous, no one will know\n"
-        f"✅ **18** — We work fast and smart, not hard\n"
-        f"✅ **19** — Payouts are quick and reliable\n"
-        f"✅ **20** — We protect all members of our team\n"
-        f"✅ **21** — No investment needed to get started\n"
-        f"✅ **22** — You can quit anytime you want\n"
-        f"✅ **23** — We operate across multiple platforms\n"
-        f"✅ **24** — Trusted by hundreds of members worldwide\n"
-        f"✅ **25** — You will never run out of opportunities\n"
-        f"✅ **26** — Daily payouts, no waiting around\n"
-        f"✅ **27** — We teach you everything from scratch\n"
-        f"✅ **28** — Join now and get a bonus on your first hit\n"
-        f"✅ **29** — The team grows stronger with every member\n"
-        f"✅ **30** — So... are you ready to make real money? 💰\n"
-    ), inline=False)
-    embed.set_footer(text=f"Offer sent by {interaction.user} • React below to accept or decline")
-
+    embed = discord.Embed(title="💸 EXCLUSIVE BUSINESS OFFER 💸", color=discord.Color.gold())
+    embed.add_field(name="📩 Hey there!", value=f"👋 Offer for {member.mention}.\nJoin us and make some serious profit!", inline=False)
     view = HitConfirmView(target=member)
     await interaction.response.send_message(f"{member.mention}", embed=embed, view=view)
 
 # ════════════════════════════════════════════════════════════
 #  MODERATION COMMANDS (owner only)
 # ════════════════════════════════════════════════════════════
-
 @tree.command(name="ban", description="Ban a member")
 @is_owner()
 async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
@@ -395,8 +291,7 @@ async def unmute(interaction: discord.Interaction, member: discord.Member):
 @is_owner()
 async def warn(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
     uid = str(member.id)
-    if uid not in warnings:
-        warnings[uid] = []
+    if uid not in warnings: warnings[uid] = []
     warnings[uid].append({"reason": reason, "time": str(datetime.datetime.now())})
     count = len(warnings[uid])
     await interaction.response.send_message(f"⚠️ **{member}** has been warned. Reason: {reason} (Total warnings: {count})")
@@ -468,71 +363,49 @@ async def removerole(interaction: discord.Interaction, member: discord.Member, r
 # ════════════════════════════════════════════════════════════
 #  SERVER MANAGEMENT COMMANDS (owner only)
 # ════════════════════════════════════════════════════════════
-
 @tree.command(name="revamp", description="Setup Grow a Garden 2 channel structure")
 @is_owner()
 async def revamp(interaction: discord.Interaction):
-    await interaction.response.send_message("🏗️ **Starting Server Revamp for 'Grow a Garden 2'...**\nDeleting old layout and building the garden structure...", ephemeral=True)
+    await interaction.response.send_message("🏗️ **Starting Server Revamp...**", ephemeral=True)
     guild = interaction.guild
-
-    # Delete existing channels (except the current one)
     for channel in guild.channels:
         if channel != interaction.channel:
-            try:
-                await channel.delete()
-            except Exception:
-                pass
+            try: await channel.delete()
+            except Exception: pass
 
-    # Structure Data for Grow a Garden 2
     structure = {
         "📌 ▬▬ INFO & NEWS ▬▬": [
-            ("👋-welcome", discord.ChannelType.text),
-            ("📜-rules", discord.ChannelType.text),
-            ("📢-announcements", discord.ChannelType.text),
-            ("🎁-giveaways", discord.ChannelType.text)
+            ("👋-welcome", discord.ChannelType.text), ("📜-rules", discord.ChannelType.text),
+            ("📢-announcements", discord.ChannelType.text), ("🎁-giveaways", discord.ChannelType.text)
         ],
         "💬 ▬▬ COMMUNITY ▬▬": [
-            ("🌿-garden-chat", discord.ChannelType.text),
-            ("🤖-bot-commands", discord.ChannelType.text),
-            ("🌌-memes", discord.ChannelType.text),
-            ("🔊 Lounge", discord.ChannelType.voice),
-            ("🔊 Gaming", discord.ChannelType.voice)
+            ("🌿-garden-chat", discord.ChannelType.text), ("🤖-bot-commands", discord.ChannelType.text),
+            ("🌌-memes", discord.ChannelType.text), ("🔊 Lounge", discord.ChannelType.voice), ("🔊 Gaming", discord.ChannelType.voice)
         ],
         "🌻 ▬▬ GARDEN GAMEPLAY ▬▬": [
-            ("🌾-flex-your-garden", discord.ChannelType.text),
-            ("🫘-seed-market", discord.ChannelType.text),
-            ("🤝-trading", discord.ChannelType.text),
-            ("💡-garden-tips", discord.ChannelType.text)
+            ("🌾-flex-your-garden", discord.ChannelType.text), ("🫘-seed-market", discord.ChannelType.text),
+            ("🤝-trading", discord.ChannelType.text), ("💡-garden-tips", discord.ChannelType.text)
         ],
-        "🎫 ▬▬ SUPPORT ▬▬": [
-            ("🎫-open-ticket", discord.ChannelType.text)
-        ]
+        "🎫 ▬▬ SUPPORT ▬▬": [("🎫-open-ticket", discord.ChannelType.text)]
     }
 
-    # Create Categories and Channels
     for cat_name, channels in structure.items():
         category = await guild.create_category(cat_name)
         for ch_name, ch_type in channels:
-            if ch_type == discord.ChannelType.text:
-                await guild.create_text_channel(ch_name, category=category)
-            elif ch_type == discord.ChannelType.voice:
-                await guild.create_voice_channel(ch_name, category=category)
+            if ch_type == discord.ChannelType.text: await guild.create_text_channel(ch_name, category=category)
+            elif ch_type == discord.ChannelType.voice: await guild.create_voice_channel(ch_name, category=category)
 
-    try:
-        await interaction.channel.send("✅ **Server Revamp complete!** 'Grow a Garden 2' theme has been fully applied. 🌱")
-    except Exception:
-        pass
+    try: await interaction.channel.send("✅ **Server Revamp complete!** 🌱")
+    except Exception: pass
 
 @tree.command(name="deleteallchannels", description="⚠️ Delete ALL channels in the server")
 @is_owner()
 async def deleteallchannels(interaction: discord.Interaction):
-    await interaction.response.send_message("⚠️ Deleting all channels in 5 seconds... (This cannot be undone!)")
+    await interaction.response.send_message("⚠️ Deleting all channels in 5 seconds...")
     await asyncio.sleep(5)
     for channel in interaction.guild.channels:
-        try:
-            await channel.delete()
-        except Exception:
-            pass
+        try: await channel.delete()
+        except Exception: pass
 
 @tree.command(name="createchannel", description="Create a new text channel")
 @is_owner()
@@ -567,7 +440,6 @@ async def serverinfo(interaction: discord.Interaction):
     embed.add_field(name="Channels", value=len(guild.channels))
     embed.add_field(name="Roles", value=len(guild.roles))
     embed.add_field(name="Owner", value=guild.owner)
-    embed.add_field(name="Created At", value=guild.created_at.strftime("%Y-%m-%d"))
     embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
     await interaction.response.send_message(embed=embed)
 
@@ -577,8 +449,6 @@ async def userinfo(interaction: discord.Interaction, member: discord.Member):
     embed = discord.Embed(title=f"👤 {member}", color=discord.Color.blurple())
     embed.add_field(name="ID", value=member.id)
     embed.add_field(name="Joined Server", value=member.joined_at.strftime("%Y-%m-%d"))
-    embed.add_field(name="Account Created", value=member.created_at.strftime("%Y-%m-%d"))
-    embed.add_field(name="Roles", value=", ".join([r.name for r in member.roles[1:]]) or "None")
     embed.set_thumbnail(url=member.display_avatar.url)
     await interaction.response.send_message(embed=embed)
 
@@ -590,7 +460,6 @@ async def membercount(interaction: discord.Interaction):
 # ════════════════════════════════════════════════════════════
 #  FUN COMMANDS (owner only)
 # ════════════════════════════════════════════════════════════
-
 @tree.command(name="ping", description="Check bot latency")
 @is_owner()
 async def ping(interaction: discord.Interaction):
@@ -611,11 +480,7 @@ async def dice(interaction: discord.Interaction, sides: int = 6):
 @tree.command(name="8ball", description="Ask the magic 8ball a question")
 @is_owner()
 async def eightball(interaction: discord.Interaction, question: str):
-    responses = [
-        "Yes! ✅", "No ❌", "Maybe 🤔", "Definitely! 🎯",
-        "Ask again later ⏳", "I don't think so 🚫", "Absolutely! 🌟",
-        "Very doubtful 😐", "Signs point to yes 👍", "Don't count on it 👎"
-    ]
+    responses = ["Yes! ✅", "No ❌", "Maybe 🤔", "Definitely! 🎯", "Ask again later ⏳"]
     await interaction.response.send_message(f"🎱 **Question:** {question}\n**Answer:** {random.choice(responses)}")
 
 @tree.command(name="choose", description="Let the bot choose between options (separate with commas)")
@@ -628,7 +493,6 @@ async def choose(interaction: discord.Interaction, options: str):
 @is_owner()
 async def poll(interaction: discord.Interaction, question: str):
     embed = discord.Embed(title=f"📊 Poll: {question}", color=discord.Color.blurple())
-    embed.set_footer(text=f"Poll by {interaction.user}")
     msg = await interaction.channel.send(embed=embed)
     await msg.add_reaction("👍")
     await msg.add_reaction("👎")
@@ -658,20 +522,14 @@ async def avatar(interaction: discord.Interaction, member: discord.Member = None
 @tree.command(name="announce", description="Send an announcement")
 @is_owner()
 async def announce(interaction: discord.Interaction, channel: discord.TextChannel, message: str):
-    embed = discord.Embed(
-        title="📢 Announcement",
-        description=message,
-        color=discord.Color.gold()
-    )
-    embed.set_footer(text=f"Announced by {interaction.user}")
+    embed = discord.Embed(title="📢 Announcement", description=message, color=discord.Color.gold())
     await channel.send(embed=embed)
     await interaction.response.send_message("✅ Announcement sent!", ephemeral=True)
 
 @tree.command(name="uptime", description="Show bot uptime")
 @is_owner()
 async def uptime(interaction: discord.Interaction):
-    now = datetime.datetime.utcnow()
-    delta = now - bot.start_time
+    delta = datetime.datetime.utcnow() - bot.start_time
     hours, remainder = divmod(int(delta.total_seconds()), 3600)
     minutes, seconds = divmod(remainder, 60)
     await interaction.response.send_message(f"⏱️ Uptime: **{hours}h {minutes}m {seconds}s**")
@@ -682,19 +540,17 @@ async def botinfo(interaction: discord.Interaction):
     embed = discord.Embed(title="🤖 Bot Info", color=discord.Color.blurple())
     embed.add_field(name="Name", value=bot.user.name)
     embed.add_field(name="Servers", value=len(bot.guilds))
-    embed.add_field(name="Ping", value=f"{round(bot.latency * 1000)}ms")
     embed.set_thumbnail(url=bot.user.display_avatar.url)
     await interaction.response.send_message(embed=embed)
 
 # ════════════════════════════════════════════════════════════
-#  WEB SERVER & AUTO-RESTART SYSTEM (Optimized for Render)
+#  WEB SERVER & RUN SYSTEM (Optimized for Render)
 # ════════════════════════════════════════════════════════════
-
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot is running 24/7 on Render!"
+    return "Bot läuft 24/7!"
 
 def run():
     port = int(os.environ.get("PORT", 8080))
@@ -702,20 +558,25 @@ def run():
 
 def keep_alive():
     t = Thread(target=run)
+    t.daemon = True
     t.start()
 
 def run_bot():
-    bot.start_time = datetime.datetime.utcnow()
-    keep_alive() 
+    keep_alive() # Webserver startet sicher genau EINMAL vor der Schleife
     
-    # Secure token storage from Render environment variables
-    TOKEN = os.getenv("DISCORD_TOKEN")
-    if not TOKEN:
-        print("❌ Error: DISCORD_TOKEN variable is completely missing in Render Environment Settings!")
-        return
-    
-    bot.run(TOKEN)
+    while True:
+        try:
+            TOKEN = os.environ.get("DISCORD_TOKEN")
+            if not TOKEN:
+                print("❌ FEHLER: 'DISCORD_TOKEN' Umgebungsvariable fehlt!")
+                time.sleep(10)
+                continue
+            
+            bot.run(TOKEN)
+        except Exception as e:
+            print(f"Bot crashed: {e}")
+            print("Starte neu in 5 Sekunden...")
+            time.sleep(5)
 
 if __name__ == "__main__":
     run_bot()
-  
