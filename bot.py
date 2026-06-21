@@ -16,7 +16,7 @@ class GardenBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # Registriert alle persistenten Buttons (Normales Ticket & Middleman Ticket)
+        # Registriert alle persistenten Buttons, damit sie auch nach einem Bot-Neustart funktionieren
         self.add_view(TicketView())
         self.add_view(CloseTicketView())
         self.add_view(MiddlemanTicketView())
@@ -96,7 +96,7 @@ class TicketView(discord.ui.View):
         await interaction.response.send_message(f"✅ Your ticket has been created: {channel.mention}", ephemeral=True)
 
 # ════════════════════════════════════════════════════════════
-#  MIDDLEMAN TICKET SYSTEM (NEW & ENGLISCH)
+#  MIDDLEMAN TICKET SYSTEM (STYLING FROM 1000046929.jpg)
 # ════════════════════════════════════════════════════════════
 class CloseMiddlemanTicketView(discord.ui.View):
     def __init__(self):
@@ -119,7 +119,7 @@ class MiddlemanTicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="🤝 Request Middleman", style=discord.ButtonStyle.success, custom_id="persistent_open_mm")
+    @discord.ui.button(label="🎫 Request Middleman", style=discord.ButtonStyle.blurple, custom_id="persistent_open_mm")
     async def open_mm_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
         user = interaction.user
@@ -140,7 +140,7 @@ class MiddlemanTicketView(discord.ui.View):
         embed = discord.Embed(
             title="🤝 Middleman Service Requested",
             description=f"Welcome {user.mention}!\nAn official Middleman will join this ticket shortly.\n\n**Please prepare the following information:**\n1. Who are you trading with? (Ping them)\n2. What are you giving?\n3. What are you receiving?",
-            color=discord.Color.brand_green()
+            color=discord.Color.blurple()
         )
         embed.set_footer(text="Do not invite unofficial users to secure your trade!")
         await channel.send(embed=embed, view=CloseMiddlemanTicketView())
@@ -150,16 +150,30 @@ class MiddlemanTicketView(discord.ui.View):
 @is_owner()
 async def middleman_ticket(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="🤝 Safe Trading - Middleman Service",
-        description="Do you want to complete a trade safely? Click the button below to request an official Middleman to secure your trade!",
-        color=discord.Color.brand_green()
+        title="🤝 Middleman Services",
+        description=(
+            "**Middleman Service**\n"
+            "• To request a middleman from this server, click the blue **\"Request Middleman\"** button on this message.\n\n"
+            "**How does middleman work?**\n"
+            "• Example: Trade is Frost Dragon for Corrupt.\n"
+            "• Trader #1 gives Frost Dragon to middleman.\n"
+            "• Trader #2 gives Corrupt to middleman.\n"
+            "• Middleman gives the respective pets to each trader.\n\n"
+            "⚠️ **DISCLAIMER!**\n"
+            "You must both agree on the deal before using a middleman. Troll tickets will have consequences."
+        ),
+        color=discord.Color.blurple()
     )
-    embed.set_footer(text="Always use a Middleman to prevent scams.")
+    embed.set_footer(
+        text=f"Powered by {interaction.client.user.name}", 
+        icon_url=interaction.client.user.display_avatar.url
+    )
+    
     await interaction.channel.send(embed=embed, view=MiddlemanTicketView())
     await interaction.response.send_message("✅ Middleman panel sent!", ephemeral=True)
 
 # ════════════════════════════════════════════════════════════
-#  HELP PANEL (UPDATED)
+#  HELP PANEL
 # ════════════════════════════════════════════════════════════
 @tree.command(name="help", description="Show all available bot commands")
 async def help_cmd(interaction: discord.Interaction):
