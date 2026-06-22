@@ -31,20 +31,26 @@ SPAM_LIMIT = 5
 SPAM_WINDOW = 5
 warnings = {}
 
-# Custom Moderation Filters (Add your own words/links here)
+# Custom Moderation Filters
 BLOCKED_WORDS = []
 MAX_MENTIONS = 5
 MAX_CAPS_PERCENT = 70
 DISCORD_INVITE = "discord.gg"
 
+# Helper function to generate standardized embedded responses
+def make_embed(title: str, description: str, color: int = 0x5865f2) -> discord.Embed:
+    return discord.Embed(title=title, description=description, color=color)
+
 # Owner Check Decorator
 def is_owner():
     async def predicate(interaction: discord.Interaction) -> bool:
         if not interaction.guild:
-            await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+            embed = make_embed("Error", "This command can only be used in a server.", 0xed4245)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return False
         if interaction.user.id != interaction.guild.owner_id:
-            await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+            embed = make_embed("Access Denied", "You do not have permission to use this command.", 0xed4245)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return False
         return True
     return app_commands.check(predicate)
@@ -70,11 +76,7 @@ async def create_ticket_transcript(channel, category="General"):
     file_stream = io.BytesIO(log_content.encode("utf-8"))
     log_file = discord.File(fp=file_stream, filename=f"transcript-{channel.name}.txt")
     
-    embed = discord.Embed(
-        title="Ticket Archive",
-        description=f"**Type:** {category}\n**Channel:** #{channel.name}\n**Timestamp:** {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC",
-        color=0x2f3136
-    )
+    embed = make_embed("Ticket Archive", f"**Type:** {category}\n**Channel:** #{channel.name}\n**Timestamp:** {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC", 0x2f3136)
     await log_channel.send(embed=embed, file=log_file)
 
 # Support Ticket System
@@ -87,11 +89,13 @@ class SupportTicketView(discord.ui.View):
         button.label = f"Claimed by {interaction.user.name}"
         button.disabled = True
         await interaction.message.edit(view=self)
-        await interaction.response.send_message(f"Staff member {interaction.user.mention} has claimed this ticket.")
+        embed = make_embed("Ticket Claimed", f"Staff member {interaction.user.mention} has claimed this ticket.", 0x57f287)
+        await interaction.response.send_message(embed=embed)
 
     @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.red, custom_id="btn_close_support")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Archiving conversation and closing channel in 5 seconds...")
+        embed = make_embed("Ticket Closing", "Archiving conversation and closing channel in 5 seconds...", 0xed4245)
+        await interaction.response.send_message(embed=embed)
         await create_ticket_transcript(interaction.channel, "Support")
         await asyncio.sleep(5)
         await interaction.channel.delete()
@@ -108,7 +112,8 @@ class SupportPanel(discord.ui.View):
         
         existing = discord.utils.get(guild.text_channels, name=channel_name)
         if existing:
-            await interaction.response.send_message(f"You already have an active ticket open: {existing.mention}", ephemeral=True)
+            embed = make_embed("Error", f"You already have an active ticket open: {existing.mention}", 0xed4245)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
         permissions = {
@@ -123,13 +128,11 @@ class SupportPanel(discord.ui.View):
             
         channel = await guild.create_text_channel(channel_name, overwrites=permissions, category=category)
         
-        embed = discord.Embed(
-            title="Support Ticket", 
-            description=f"Welcome {user.mention}. Please state your inquiry or issue below. A staff member will be with you shortly.", 
-            color=0x5865f2
-        )
+        embed = make_embed("Support Ticket", f"Welcome {user.mention}. Please state your inquiry or issue below. A staff member will be with you shortly.", 0x5865f2)
         await channel.send(embed=embed, view=SupportTicketView())
-        await interaction.response.send_message(f"Your ticket has been generated: {channel.mention}", ephemeral=True)
+        
+        resp_embed = make_embed("Success", f"Your ticket has been generated: {channel.mention}", 0x57f287)
+        await interaction.response.send_message(embed=resp_embed, ephemeral=True)
 
 # Middleman System
 class MiddlemanTicketView(discord.ui.View):
@@ -141,11 +144,13 @@ class MiddlemanTicketView(discord.ui.View):
         button.label = f"Middleman: {interaction.user.name}"
         button.disabled = True
         await interaction.message.edit(view=self)
-        await interaction.response.send_message(f"{interaction.user.mention} is handling this middleman transaction.")
+        embed = make_embed("Middleman Assigned", f"{interaction.user.mention} is handling this middleman transaction.", 0x57f287)
+        await interaction.response.send_message(embed=embed)
 
     @discord.ui.button(label="Close Trade", style=discord.ButtonStyle.red, custom_id="btn_close_mm")
     async def close_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Saving trade logs and deleting channel in 5 seconds...")
+        embed = make_embed("Trade Closing", "Saving trade logs and deleting channel in 5 seconds...", 0xed4245)
+        await interaction.response.send_message(embed=embed)
         await create_ticket_transcript(interaction.channel, "Middleman Trade")
         await asyncio.sleep(5)
         await interaction.channel.delete()
@@ -162,7 +167,8 @@ class MiddlemanPanel(discord.ui.View):
         
         existing = discord.utils.get(guild.text_channels, name=channel_name)
         if existing:
-            await interaction.response.send_message(f"You already have an active middleman request: {existing.mention}", ephemeral=True)
+            embed = make_embed("Error", f"You already have an active middleman request: {existing.mention}", 0xed4245)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
         permissions = {
@@ -184,7 +190,9 @@ class MiddlemanPanel(discord.ui.View):
         )
         embed.set_footer(text="Verify middleman roles before trading to prevent scams.")
         await channel.send(embed=embed, view=MiddlemanTicketView())
-        await interaction.response.send_message(f"Middleman request created: {channel.mention}", ephemeral=True)
+        
+        resp_embed = make_embed("Success", f"Middleman request created: {channel.mention}", 0x57f287)
+        await interaction.response.send_message(embed=resp_embed, ephemeral=True)
 
 @tree.command(name="setup_middleman", description="Deploy the official middleman ticket panel")
 @is_owner()
@@ -202,13 +210,15 @@ async def setup_middleman(interaction: discord.Interaction):
         color=0x5865f2
     )
     await interaction.channel.send(embed=embed, view=MiddlemanPanel())
-    await interaction.response.send_message("Panel deployed successfully.", ephemeral=True)
+    resp_embed = make_embed("System", "Panel deployed successfully.", 0x57f287)
+    await interaction.response.send_message(embed=resp_embed, ephemeral=True)
 
 # Giveaway System
 @tree.command(name="gstart", description="Launch a new server giveaway")
 @is_owner()
 async def gstart(interaction: discord.Interaction, minutes: int, winners: int, prize: str):
-    await interaction.response.send_message("Giveaway initialized.", ephemeral=True)
+    resp_embed = make_embed("System", "Giveaway initialized.", 0x57f287)
+    await interaction.response.send_message(embed=resp_embed, ephemeral=True)
     
     end_time = datetime.datetime.utcnow() + datetime.timedelta(minutes=minutes)
     embed = discord.Embed(
@@ -227,7 +237,8 @@ async def gstart(interaction: discord.Interaction, minutes: int, winners: int, p
     entrants = [u async for u in reaction.users() if not u.bot]
     
     if not entrants:
-        await interaction.channel.send(f"The giveaway for **{prize}** ended with no participants.")
+        end_chat_embed = make_embed("Giveaway Ended", f"The giveaway for **{prize}** ended with no participants.", 0xed4245)
+        await interaction.channel.send(embed=end_chat_embed)
         return
     
     chosen_winners = random.sample(entrants, min(len(entrants), winners))
@@ -239,7 +250,8 @@ async def gstart(interaction: discord.Interaction, minutes: int, winners: int, p
         color=0x2ecc71
     )
     await msg.edit(embed=end_embed)
-    await interaction.channel.send(f"Congratulations {mentions}! You won **{prize}**!")
+    win_announcement = make_embed("Giveaway Winner", f"Congratulations {mentions}! You won **{prize}**!", 0x2ecc71)
+    await interaction.channel.send(embed=win_announcement)
 
 @tree.command(name="greroll", description="Reroll a giveaway winner using the message ID")
 @is_owner()
@@ -247,22 +259,28 @@ async def greroll(interaction: discord.Interaction, message_id: str):
     try:
         msg = await interaction.channel.fetch_message(int(message_id))
     except Exception:
-        await interaction.response.send_message("Invalid message ID or message not found.", ephemeral=True)
+        embed = make_embed("Error", "Invalid message ID or message not found.", 0xed4245)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
 
     reaction = discord.utils.get(msg.reactions, emoji="🎉")
     if not reaction:
-        await interaction.response.send_message("No giveaway entries found on this message.", ephemeral=True)
+        embed = make_embed("Error", "No giveaway entries found on this message.", 0xed4245)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
         
     entrants = [u async for u in reaction.users() if not u.bot]
     if not entrants:
-        await interaction.response.send_message("No users reacted to this giveaway.", ephemeral=True)
+        embed = make_embed("Error", "No users reacted to this giveaway.", 0xed4245)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
         
     winner = random.choice(entrants)
-    await interaction.response.send_message("Reroll complete.", ephemeral=True)
-    await interaction.channel.send(f"🎉 **New Winner:** {winner.mention}! Congratulations!")
+    resp_embed = make_embed("System", "Reroll complete.", 0x57f287)
+    await interaction.response.send_message(embed=resp_embed, ephemeral=True)
+    
+    reroll_embed = make_embed("New Winner Chosen", f"🎉 **New Winner:** {winner.mention}! Congratulations!", 0x2ecc71)
+    await interaction.channel.send(embed=reroll_embed)
 
 # Help Core Command
 @tree.command(name="help", description="Display available system commands")
@@ -302,7 +320,8 @@ async def on_member_join(member):
 async def on_member_remove(member):
     channel = discord.utils.get(member.guild.text_channels, name="welcome")
     if channel: 
-        await channel.send(f"**{member.name}** left the server.")
+        embed = make_embed("Member Left", f"**{member.name}** left the server.", 0xed4245)
+        await channel.send(embed=embed)
 
 @bot.event
 async def on_message(message):
@@ -352,14 +371,19 @@ async def verify(interaction: discord.Interaction):
     btn_yes = discord.ui.Button(label="Accept Rules", style=discord.ButtonStyle.green)
     btn_no = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.red)
     
-    async def yes_cb(i): await i.response.send_message("Verification successful.", ephemeral=True)
-    async def no_cb(i): await i.response.send_message("Verification aborted.", ephemeral=True)
+    async def yes_cb(i): 
+        embed = make_embed("Verification", "Verification successful.", 0x57f287)
+        await i.response.send_message(embed=embed, ephemeral=True)
+    async def no_cb(i): 
+        embed = make_embed("Verification", "Verification aborted.", 0xed4245)
+        await i.response.send_message(embed=embed, ephemeral=True)
     
     btn_yes.callback = yes_cb
     btn_no.callback = no_cb
     view.add_item(btn_yes)
     view.add_item(btn_no)
-    await interaction.response.send_message("Please acknowledge the server guidelines to gain access.", view=view, ephemeral=True)
+    embed = make_embed("Verification Required", "Please acknowledge the server guidelines to gain access.", 0x5865f2)
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 class OfferConfirmation(discord.ui.View):
     def __init__(self, target: discord.Member):
@@ -369,37 +393,42 @@ class OfferConfirmation(discord.ui.View):
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         for item in self.children: item.disabled = True
         await interaction.message.edit(view=self)
-        await interaction.response.send_message(f"{interaction.user.mention} has accepted the terms.")
+        embed = make_embed("Offer Accepted", f"{interaction.user.mention} has accepted the terms.", 0x57f287)
+        await interaction.response.send_message(embed=embed)
     @discord.ui.button(label="Decline", style=discord.ButtonStyle.red)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         for item in self.children: item.disabled = True
         await interaction.message.edit(view=self)
-        await interaction.response.send_message(f"{interaction.user.mention} rejected the offer.")
+        embed = make_embed("Offer Declined", f"{interaction.user.mention} rejected the offer.", 0xed4245)
+        await interaction.response.send_message(embed=embed)
 
 @tree.command(name="hit", description="Propose a custom trade deal")
 async def hit(interaction: discord.Interaction, member: discord.Member):
     embed = discord.Embed(title="Trade Offer", description=f"New business proposal for {member.mention}.", color=0xf1c40f)
-    await interaction.response.send_message(f"{member.mention}", embed=embed, view=OfferConfirmation(target=member))
+    await interaction.response.send_message(embed=embed, view=OfferConfirmation(target=member))
 
 # Administrative Modules
 @tree.command(name="ban", description="Ban a user")
 @is_owner()
 async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
     await member.ban(reason=reason)
-    await interaction.response.send_message(f"Banned {member}. Reason: {reason}")
+    embed = make_embed("Ban Executed", f"Banned {member}. Reason: {reason}", 0xed4245)
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(name="unban", description="Unban a user by ID")
 @is_owner()
 async def unban(interaction: discord.Interaction, user_id: str, reason: str = "No reason provided"):
     user = await bot.fetch_user(int(user_id))
     await interaction.guild.unban(user, reason=reason)
-    await interaction.response.send_message(f"Unbanned {user}.")
+    embed = make_embed("Unban Executed", f"Unbanned {user}.", 0x57f287)
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(name="kick", description="Kick a user")
 @is_owner()
 async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
     await member.kick(reason=reason)
-    await interaction.response.send_message(f"Kicked {member}. Reason: {reason}")
+    embed = make_embed("Kick Executed", f"Kicked {member}. Reason: {reason}", 0xe67e22)
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(name="mute", description="Mute a user")
 @is_owner()
@@ -410,7 +439,8 @@ async def mute(interaction: discord.Interaction, member: discord.Member, minutes
         for channel in interaction.guild.channels: 
             await channel.set_permissions(mute_role, send_messages=False, speak=False)
     await member.add_roles(mute_role, reason=reason)
-    await interaction.response.send_message(f"Muted {member} for {minutes}m. Reason: {reason}")
+    embed = make_embed("Mute Executed", f"Muted {member} for {minutes}m. Reason: {reason}", 0xe67e22)
+    await interaction.response.send_message(embed=embed)
     await asyncio.sleep(minutes * 60)
     await member.remove_roles(mute_role)
 
@@ -420,9 +450,11 @@ async def unmute(interaction: discord.Interaction, member: discord.Member):
     mute_role = discord.utils.get(interaction.guild.roles, name="Muted")
     if mute_role in member.roles:
         await member.remove_roles(mute_role)
-        await interaction.response.send_message(f"Unmuted {member}.")
+        embed = make_embed("Unmute Executed", f"Unmuted {member}.", 0x57f287)
+        await interaction.response.send_message(embed=embed)
     else:
-        await interaction.response.send_message("User is not muted.", ephemeral=True)
+        embed = make_embed("Error", "User is not muted.", 0xed4245)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @tree.command(name="warn", description="Issue a warning to a user")
 @is_owner()
@@ -432,7 +464,8 @@ async def warn(interaction: discord.Interaction, member: discord.Member, reason:
         warnings[uid] = []
     warnings[uid].append({"reason": reason, "time": str(datetime.datetime.now())})
     count = len(warnings[uid])
-    await interaction.response.send_message(f"Warned {member}. Total: {count}")
+    embed = make_embed("Warning Issued", f"Warned {member}. Total: {count}\nReason: {reason}", 0xe67e22)
+    await interaction.response.send_message(embed=embed)
     if count >= 3:
         await member.ban(reason="Automated ban: 3 warnings accumulated.")
 
@@ -441,7 +474,8 @@ async def warn(interaction: discord.Interaction, member: discord.Member, reason:
 async def check_warnings(interaction: discord.Interaction, member: discord.Member):
     uid = str(member.id)
     if uid not in warnings or not warnings[uid]:
-        await interaction.response.send_message("User has no active warnings.", ephemeral=True)
+        embed = make_embed("Infraction Clean", "User has no active warnings.", 0x57f287)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
     embed = discord.Embed(title=f"Infractions: {member}", color=0xe67e22)
     for i, w in enumerate(warnings[uid], 1): 
@@ -452,56 +486,65 @@ async def check_warnings(interaction: discord.Interaction, member: discord.Membe
 @is_owner()
 async def clearwarnings(interaction: discord.Interaction, member: discord.Member):
     warnings[str(member.id)] = []
-    await interaction.response.send_message(f"Cleared history for {member}.")
+    embed = make_embed("History Reset", f"Cleared history for {member}.", 0x57f287)
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(name="purge", description="Bulk delete messages")
 @is_owner()
 async def purge(interaction: discord.Interaction, amount: int):
     await interaction.response.defer(ephemeral=True)
     await interaction.channel.purge(limit=amount)
-    await interaction.followup.send(f"Purged {amount} messages.", ephemeral=True)
+    embed = make_embed("Purge Complete", f"Purged {amount} messages.", 0x57f287)
+    await interaction.followup.send(embed=embed, ephemeral=True)
 
 @tree.command(name="slowmode", description="Configure channel rate limit")
 @is_owner()
 async def slowmode(interaction: discord.Interaction, seconds: int):
     await interaction.channel.edit(slowmode_delay=seconds)
-    await interaction.response.send_message(f"Slowmode updated to {seconds}s.")
+    embed = make_embed("Configuration Updated", f"Slowmode updated to {seconds}s.", 0x5865f2)
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(name="lock", description="Lock text channel permissions")
 @is_owner()
 async def lock(interaction: discord.Interaction):
     await interaction.channel.set_permissions(interaction.guild.default_role, send_messages=False)
-    await interaction.response.send_message("Channel locked down.")
+    embed = make_embed("Channel Lockdown", "Channel locked down.", 0xed4245)
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(name="unlock", description="Restore text channel permissions")
 @is_owner()
 async def unlock(interaction: discord.Interaction):
     await interaction.channel.set_permissions(interaction.guild.default_role, send_messages=True)
-    await interaction.response.send_message("Channel unlocked.")
+    embed = make_embed("Channel Unlocked", "Channel unlocked.", 0x57f287)
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(name="nickname", description="Modify user nickname")
 @is_owner()
 async def nickname(interaction: discord.Interaction, member: discord.Member, nickname: str):
     await member.edit(nick=nickname)
-    await interaction.response.send_message(f"Updated nickname for {member}.")
+    embed = make_embed("Profile Updated", f"Updated nickname for {member} to {nickname}.", 0x57f287)
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(name="addrole", description="Assign a role")
 @is_owner()
 async def addrole(interaction: discord.Interaction, member: discord.Member, role: discord.Role):
     await member.add_roles(role)
-    await interaction.response.send_message(f"Assigned role {role.name} to {member}.")
+    embed = make_embed("Role Updated", f"Assigned role {role.name} to {member}.", 0x57f287)
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(name="removerole", description="Revoke a role")
 @is_owner()
 async def removerole(interaction: discord.Interaction, member: discord.Member, role: discord.Role):
     await member.remove_roles(role)
-    await interaction.response.send_message(f"Revoked role {role.name} from {member}.")
+    embed = make_embed("Role Updated", f"Revoked role {role.name} from {member}.", 0xed4245)
+    await interaction.response.send_message(embed=embed)
 
 # Infrastructure Control Module
 @tree.command(name="revamp", description="Rebuild server infrastructure channels")
 @is_owner()
 async def revamp(interaction: discord.Interaction):
-    await interaction.response.send_message("Executing infrastructure rebuild...", ephemeral=True)
+    embed = make_embed("System Management", "Executing infrastructure rebuild...", 0xe67e22)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
     guild = interaction.guild
     for channel in guild.channels:
         if channel != interaction.channel:
@@ -523,13 +566,16 @@ async def revamp(interaction: discord.Interaction):
             elif ch_type == discord.ChannelType.voice: 
                 await guild.create_voice_channel(ch_name, category=category)
                 
-    try: await interaction.channel.send("Infrastructure build completed.")
+    try: 
+        final_embed = make_embed("Infrastructure System", "Infrastructure build completed.", 0x57f287)
+        await interaction.channel.send(embed=final_embed)
     except Exception: pass
 
 @tree.command(name="deleteallchannels", description="Wipe all channels")
 @is_owner()
 async def deleteallchannels(interaction: discord.Interaction):
-    await interaction.response.send_message("Wiping server channels in 5 seconds...")
+    embed = make_embed("System Warning", "Wiping server channels in 5 seconds...", 0xed4245)
+    await interaction.response.send_message(embed=embed)
     await asyncio.sleep(5)
     for channel in interaction.guild.channels:
         try: await channel.delete()
@@ -539,25 +585,31 @@ async def deleteallchannels(interaction: discord.Interaction):
 @is_owner()
 async def createchannel(interaction: discord.Interaction, name: str):
     channel = await interaction.guild.create_text_channel(name)
-    await interaction.response.send_message(f"Created channel {channel.mention}")
+    embed = make_embed("Structure Updated", f"Created channel {channel.mention}", 0x57f287)
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(name="deletechannel", description="Delete target channel")
 @is_owner()
 async def deletechannel(interaction: discord.Interaction, channel: discord.TextChannel):
+    channel_name = channel.name
     await channel.delete()
-    await interaction.response.send_message("Channel deleted.", ephemeral=True)
+    embed = make_embed("Structure Updated", f"Channel #{channel_name} deleted.", 0xed4245)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @tree.command(name="createrole", description="Create custom role")
 @is_owner()
 async def createrole(interaction: discord.Interaction, name: str):
     role = await interaction.guild.create_role(name=name)
-    await interaction.response.send_message(f"Created role: {role.name}")
+    embed = make_embed("Role Management", f"Created role: {role.name}", 0x57f287)
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(name="deleterole", description="Delete target role")
 @is_owner()
 async def deleterole(interaction: discord.Interaction, role: discord.Role):
+    role_name = role.name
     await role.delete()
-    await interaction.response.send_message("Role deleted.")
+    embed = make_embed("Role Management", f"Role @{role_name} deleted.", 0xed4245)
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(name="serverinfo", description="Display technical guild metrics")
 @is_owner()
@@ -582,33 +634,39 @@ async def userinfo(interaction: discord.Interaction, member: discord.Member):
 @tree.command(name="membercount", description="Get active member metrics")
 @is_owner()
 async def membercount(interaction: discord.Interaction):
-    await interaction.response.send_message(f"Current server headcount: **{interaction.guild.member_count}**")
+    embed = make_embed("Guild Metrics", f"Current server headcount: **{interaction.guild.member_count}**", 0x5865f2)
+    await interaction.response.send_message(embed=embed)
 
 # Standard Tools
 @tree.command(name="ping", description="Check hardware latency")
 @is_owner()
 async def ping(interaction: discord.Interaction): 
-    await interaction.response.send_message(f"Latency: `{round(bot.latency * 1000)}ms`")
+    embed = make_embed("System Status", f"Latency: `{round(bot.latency * 1000)}ms`", 0x57f287)
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(name="coinflip", description="Execute random binary output")
 @is_owner()
 async def coinflip(interaction: discord.Interaction): 
-    await interaction.response.send_message(f"Result: **{random.choice(['Heads', 'Tails'])}**")
+    embed = make_embed("Coinflip", f"Result: **{random.choice(['Heads', 'Tails'])}**", 0x5865f2)
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(name="dice", description="Generate random numeric outcome")
 @is_owner()
 async def dice(interaction: discord.Interaction, sides: int = 6): 
-    await interaction.response.send_message(f"Rolled: **{random.randint(1, sides)}**")
+    embed = make_embed("Dice Roll", f"Rolled: **{random.randint(1, sides)}** (1-{sides})", 0x5865f2)
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(name="8ball", description="Query predictive string array")
 @is_owner()
 async def eightball(interaction: discord.Interaction, question: str): 
-    await interaction.response.send_message(f"🔮 **Query:** {question}\n**Response:** {random.choice(['Affirmative', 'Negative', 'Uncertain', 'Most likely'])}")
+    embed = make_embed("🔮 8-Ball", f"**Query:** {question}\n**Response:** {random.choice(['Affirmative', 'Negative', 'Uncertain', 'Most likely'])}", 0x5865f2)
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(name="choose", description="Select random parameter from comma-separated list")
 @is_owner()
 async def choose(interaction: discord.Interaction, options: str): 
-    await interaction.response.send_message(f"Selected: **{random.choice([o.strip() for o in options.split(',')])}**")
+    embed = make_embed("Decision Engine", f"Selected: **{random.choice([o.strip() for o in options.split(',')])}**", 0x5865f2)
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(name="poll", description="Deploy polling reaction set")
 @is_owner()
@@ -616,19 +674,22 @@ async def poll(interaction: discord.Interaction, question: str):
     msg = await interaction.channel.send(embed=discord.Embed(title=f"Poll: {question}", color=0x5865f2))
     await msg.add_reaction("👍")
     await msg.add_reaction("👎")
-    await interaction.response.send_message("Poll deployed.", ephemeral=True)
+    embed = make_embed("System", "Poll deployed.", 0x57f287)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @tree.command(name="say", description="Relay text parameter through bot instance")
 @is_owner()
 async def say(interaction: discord.Interaction, message: str):
-    await interaction.response.send_message("Relayed.", ephemeral=True)
+    embed = make_embed("System", "Relayed.", 0x57f287)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
     await interaction.channel.send(message)
 
 @tree.command(name="embed", description="Generate native script rich embed")
 @is_owner()
 async def embed_cmd(interaction: discord.Interaction, title: str, description: str):
     await interaction.channel.send(embed=discord.Embed(title=title, description=description, color=0x5865f2))
-    await interaction.response.send_message("Embed deployed.", ephemeral=True)
+    embed = make_embed("System", "Embed deployed.", 0x57f287)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @tree.command(name="avatar", description="Fetch asset target user avatar")
 @is_owner()
@@ -642,7 +703,8 @@ async def avatar(interaction: discord.Interaction, member: discord.Member = None
 @is_owner()
 async def announce(interaction: discord.Interaction, channel: discord.TextChannel, message: str):
     await channel.send(embed=discord.Embed(title="Notification", description=message, color=0xf1c40f))
-    await interaction.response.send_message("Broadcast complete.", ephemeral=True)
+    embed = make_embed("System", "Broadcast complete.", 0x57f287)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @tree.command(name="uptime", description="Check instance active loop duration")
 @is_owner()
@@ -650,7 +712,8 @@ async def uptime(interaction: discord.Interaction):
     delta = datetime.datetime.utcnow() - bot.start_time
     hours, remainder = divmod(int(delta.total_seconds()), 3600)
     minutes, seconds = divmod(remainder, 60)
-    await interaction.response.send_message(f"System Uptime: **{hours}h {minutes}m {seconds}s**")
+    embed = make_embed("System Telemetry", f"System Uptime: **{hours}h {minutes}m {seconds}s**", 0x5865f2)
+    await interaction.response.send_message(embed=embed)
 
 @tree.command(name="botinfo", description="Display process details")
 @is_owner()
