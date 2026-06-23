@@ -31,13 +31,12 @@ SPAM_LIMIT = 5
 SPAM_WINDOW = 5
 warnings = {}
 
-# Custom Moderation Filters
 BLOCKED_WORDS = []
 MAX_MENTIONS = 5
 MAX_CAPS_PERCENT = 70
 DISCORD_INVITE = "discord.gg"
 
-# Helper for High-End Minimalist Embeds (Inspired by 1000047005.jpg)
+# Helper for High-End Minimalist Embeds
 def make_clean_embed(title: str, description: str, color: int = 0x2f3136) -> discord.Embed:
     embed = discord.Embed(description=description, color=color)
     embed.set_author(name=title)
@@ -50,7 +49,6 @@ def add_bot_footer(embed: discord.Embed, interaction: discord.Interaction):
     )
     return embed
 
-# Owner Check Decorator
 def is_owner():
     async def predicate(interaction: discord.Interaction) -> bool:
         if not interaction.guild:
@@ -64,7 +62,6 @@ def is_owner():
         return True
     return app_commands.check(predicate)
 
-# Transcript Logging Engine
 async def create_ticket_transcript(channel, category="General"):
     guild = channel.guild
     log_channel = discord.utils.get(guild.text_channels, name="ticket-logs")
@@ -133,6 +130,13 @@ class SupportPanel(discord.ui.View):
             guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
         
+        # Team-Rollen automatisch Lese- und Schreibrechte im Support-Ticket geben
+        team_roles = ["Owner", "Administrator", "Head Moderator", "Moderator", "Team Lead", "Chief Lead", "Lead", "Cordinator"]
+        for r_name in team_roles:
+            role = discord.utils.get(guild.roles, name=r_name)
+            if role:
+                permissions[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
         category = discord.utils.get(guild.categories, name="Tickets")
         if not category: 
             category = await guild.create_category("Tickets")
@@ -191,6 +195,13 @@ class MiddlemanPanel(discord.ui.View):
             guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
         
+        # Middleman-Team automatisch Berechtigungen geben
+        mm_roles = ["Owner", "Middleman Manager", "Head Middleman", "Middleman", "Chief Lead", "Lead", "Cordinator"]
+        for r_name in mm_roles:
+            role = discord.utils.get(guild.roles, name=r_name)
+            if role:
+                permissions[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
         category = discord.utils.get(guild.categories, name="Middleman Service")
         if not category: 
             category = await guild.create_category("Middleman Service")
@@ -199,7 +210,12 @@ class MiddlemanPanel(discord.ui.View):
         
         embed = make_clean_embed("🎫 Middleman Ticket", f"{user.mention}, Thank you for using our middleman services.\n\nPlease wait for a middleman to assist you.\n\nIf you have any questions, please let a staff member know.", 0x2f3136)
         embed = add_bot_footer(embed, interaction)
-        await channel.send(f"{user.mention} @Middleman", embed=embed, view=MiddlemanTicketView())
+        
+        # Sucht die Middleman Rolle für den Ping im Text
+        mm_ping_role = discord.utils.get(guild.roles, name="Middleman")
+        ping_text = f"{user.mention} {mm_ping_role.mention}" if mm_ping_role else f"{user.mention} @Middleman"
+        
+        await channel.send(ping_text, embed=embed, view=MiddlemanTicketView())
         
         resp_embed = make_clean_embed("✅ Success", f"Middleman ticket created: {channel.mention}", 0x2f3136)
         await interaction.response.send_message(embed=resp_embed, ephemeral=True)
@@ -240,7 +256,6 @@ async def gstart(interaction: discord.Interaction, minutes: int, winners: int, p
     
     msg = await interaction.channel.send(embed=embed)
     await msg.add_reaction("🎉")
-    
     await asyncio.sleep(minutes * 60)
     
     msg = await interaction.channel.fetch_message(msg.id)
@@ -258,28 +273,22 @@ async def gstart(interaction: discord.Interaction, minutes: int, winners: int, p
     await msg.edit(embed=end_embed)
     await interaction.channel.send(embed=make_clean_embed("🎉 Winner", f"Congratulations {mentions}! You won **{prize}**!", 0x2f3136))
 
-@tree.command(name="greroll", description="Reroll a giveaway winner using the message ID")
+@tree.command(name="greroll", description="Reroll a giveaway winner")
 @is_owner()
 async def greroll(interaction: discord.Interaction, message_id: str):
     try:
         msg = await interaction.channel.fetch_message(int(message_id))
     except Exception:
-        await interaction.response.send_message(embed=make_clean_embed("❌ Error", "Invalid message ID or message not found.", 0x2f3136), ephemeral=True)
+        await interaction.response.send_message(embed=make_clean_embed("❌ Error", "Invalid message ID.", 0x2f3136), ephemeral=True)
         return
-
     reaction = discord.utils.get(msg.reactions, emoji="🎉")
-    if not reaction:
-        await interaction.response.send_message(embed=make_clean_embed("❌ Error", "No giveaway entries found on this message.", 0x2f3136), ephemeral=True)
-        return
-        
     entrants = [u async for u in reaction.users() if not u.bot]
     if not entrants:
-        await interaction.response.send_message(embed=make_clean_embed("❌ Error", "No users reacted to this giveaway.", 0x2f3136), ephemeral=True)
+        await interaction.response.send_message(embed=make_clean_embed("❌ Error", "No entrants.", 0x2f3136), ephemeral=True)
         return
-        
     winner = random.choice(entrants)
     await interaction.response.send_message(embed=make_clean_embed("✅ System", "Reroll complete.", 0x2f3136), ephemeral=True)
-    await interaction.channel.send(embed=make_clean_embed("🎉 New Winner", f"🎉 New Winner: {winner.mention}! Congratulations!", 0x2f3136))
+    await interaction.channel.send(embed=make_clean_embed("🎉 New Winner", f"New Winner: {winner.mention}! Congratulations!", 0x2f3136))
 
 # Help Core Command
 @tree.command(name="help", description="Display available system commands")
@@ -443,17 +452,43 @@ async def removerole(interaction: discord.Interaction, member: discord.Member, r
     await member.remove_roles(role)
     await interaction.response.send_message(embed=make_clean_embed("🛡️ Role Updated", f"Revoked role {role.name} from {member}.", 0x2f3136))
 
-# Infrastructure Control Module
-@tree.command(name="revamp", description="Rebuild server infrastructure channels")
+# Infrastructure Control Module + AUTOMATED ROLES EXPANSION
+@tree.command(name="revamp", description="Rebuild server infrastructure channels and staff roles")
 @is_owner()
 async def revamp(interaction: discord.Interaction):
-    await interaction.response.send_message(embed=make_clean_embed("⚙️ System Management", "Executing infrastructure rebuild...", 0x2f3136), ephemeral=True)
+    await interaction.response.send_message(embed=make_clean_embed("⚙️ System Management", "Executing entire infrastructure and role rebuild...", 0x2f3136), ephemeral=True)
     guild = interaction.guild
+    
+    # 1. Rollen-Setup (Falls sie noch nicht existieren, werden sie mit Farb-Vorschlägen erstellt)
+    roles_to_create = {
+        "Owner": discord.Color.from_rgb(153, 0, 0),
+        "Administrator": discord.Color.red(),
+        "Head Moderator": discord.Color.orange(),
+        "Moderator": discord.Color.light_gray(),
+        "Middleman Manager": discord.Color.dark_purple(),
+        "Head Middleman": discord.Color.purple(),
+        "Middleman": discord.Color.green(),
+        "Team Lead": discord.Color.blue(),
+        "Chief Lead": discord.Color.dark_blue(),
+        "Lead": discord.Color.teal(),
+        "Cordinator": discord.Color.magenta()
+    }
+    
+    for r_name, r_color in roles_to_create.items():
+        existing_role = discord.utils.get(guild.roles, name=r_name)
+        if not existing_role:
+            try:
+                await guild.create_role(name=r_name, color=r_color, mentionable=True)
+            except Exception:
+                pass
+
+    # 2. Alte Kanäle bereinigen
     for channel in guild.channels:
         if channel != interaction.channel:
             try: await channel.delete()
             except Exception: pass
             
+    # 3. Neue Struktur aufbauen
     structure = {
         "INFORMATION": [("welcome", discord.ChannelType.text), ("rules", discord.ChannelType.text), ("announcements", discord.ChannelType.text), ("giveaways", discord.ChannelType.text)],
         "COMMUNITY": [("general", discord.ChannelType.text), ("commands", discord.ChannelType.text), ("memes", discord.ChannelType.text), ("Lounge", discord.ChannelType.voice)],
@@ -469,8 +504,10 @@ async def revamp(interaction: discord.Interaction):
             elif ch_type == discord.ChannelType.voice: 
                 await guild.create_voice_channel(ch_name, category=category)
                 
-    try: await interaction.channel.send(embed=make_clean_embed("🏗️ Infrastructure System", "Infrastructure build completed.", 0x2f3136))
-    except Exception: pass
+    try: 
+        await interaction.channel.send(embed=make_clean_embed("🏗️ Infrastructure System", "Infrastructure build completed. All staff roles have been verified/created.", 0x2f3136))
+    except Exception: 
+        pass
 
 @tree.command(name="deleteallchannels", description="Wipe all channels")
 @is_owner()
