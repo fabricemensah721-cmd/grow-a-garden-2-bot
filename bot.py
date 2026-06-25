@@ -170,7 +170,7 @@ class MiddlemanPanel(discord.ui.View):
             
         ch = await interaction.guild.create_text_channel(name, overwrites=perms, category=cat)
         role = discord.utils.get(interaction.guild.roles, name="Middleman")
-        await ch.send(f"{interaction.user.mention} {role.mention if role else ''}", embed=add_bot_footer(make_clean_embed("🤝 Middleman Escrow", "Tag your partner and state deal parameters."), interaction), view=MiddlemanTicketView())
+        await ch.send(f"{interaction.user.mention} {role.mention if role else ''}", embed=add_bot_footer(make_clean_embed("🤝 Middleman Escrow", "Please mention your trading partner here and write down the full deal parameters. An authorized middleman will step in shortly."), interaction), view=MiddlemanTicketView())
         await interaction.response.send_message(embed=make_clean_embed("✅ Success", f"Trade ticket created: {ch.mention}", 0x2ecc71), ephemeral=True)
 
 # ==========================================
@@ -186,35 +186,61 @@ async def deploy_t(interaction: discord.Interaction):
 @tree.command(name="setup_middleman", description="Deploy middleman panel")
 @is_owner()
 async def deploy_m(interaction: discord.Interaction):
-    embed = discord.Embed(title="🤝 Middleman Services", description="Click below to request a middleman.", color=0x2f3136)
+    embed = discord.Embed(
+        title="🤝 Middleman Services", 
+        description=(
+            "**Secure Escrow / Middleman Transactions**\n"
+            "• To request an official middleman from this server, click the blue **\"Request Middleman\"** button below.\n\n"
+            "**How it works:**\n"
+            "• Once your ticket opens, add your trading partner, specify the deal terms, and wait for a certified middleman to secure your assets."
+        ), 
+        color=0x2f3136
+    )
     await interaction.channel.send(embed=add_bot_footer(embed, interaction), view=MiddlemanPanel())
     await interaction.response.send_message(embed=make_clean_embed("✅ System", "Panel deployed successfully."), ephemeral=True)
 
-@tree.command(name="fill", description="Toggle infrastructure staff roles")
+@tree.command(name="fill", description="Saves and toggles your current roles off or restores them back automatically")
 @is_owner()
 async def fill_roles(interaction: discord.Interaction):
-    uid = interaction.user.id
-    roles_list = ["Owner", "Administrator", "Head Moderator", "Moderator", "Middleman Manager", "Head Middleman", "Middleman", "Team Lead", "Chief Lead", "Lead", "Cordinator"]
-    
+    guild = interaction.guild
+    member = interaction.user
+    uid = member.id
+
     if uid in fill_tracker and fill_tracker[uid]:
-        removed = []
-        for rid in fill_tracker[uid]:
-            role = interaction.guild.get_role(rid)
-            if role in interaction.user.roles:
-                await interaction.user.remove_roles(role)
-                removed.append(role.name)
+        restored_roles = []
+        for role_id in fill_tracker[uid]:
+            role = guild.get_role(role_id)
+            if role and role not in member.roles:
+                try:
+                    await member.add_roles(role)
+                    restored_roles.append(role.name)
+                except discord.Forbidden:
+                    pass
+        
         fill_tracker[uid] = []
-        await interaction.response.send_message(embed=make_clean_embed("🔄 Removed", f"Removed roles:\n**{', '.join(removed) if removed else 'None'}**"), ephemeral=True)
+        if restored_roles:
+            embed = make_clean_embed("🔄 Roles Restored", f"Welcome back! I have automatically restored your previous roles:\n**{', '.join(restored_roles)}**", 0x2ecc71)
+        else:
+            embed = make_clean_embed("🔄 Roles Restored", "Tried to restore your roles, but you already have them or they no longer exist.", 0x2f3136)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
     else:
-        granted, added = [], []
-        for name in roles_list:
-            role = discord.utils.get(interaction.guild.roles, name=name)
-            if role and role not in interaction.user.roles:
-                await interaction.user.add_roles(role)
-                granted.append(role.id)
-                added.append(role.name)
-        fill_tracker[uid] = granted
-        await interaction.response.send_message(embed=make_clean_embed("🔄 Filled", f"Granted roles:\n**{', '.join(added) if added_roles else 'None'}**"), ephemeral=True)
+        current_role_ids = []
+        removed_roles = []
+        for role in member.roles:
+            if not role.is_default():
+                current_role_ids.append(role.id)
+                try:
+                    await member.remove_roles(role)
+                    removed_roles.append(role.name)
+                except discord.Forbidden:
+                    pass
+        
+        if not current_role_ids:
+            return await interaction.response.send_message(embed=make_clean_embed("❌ Error", "You don't have any roles that I could save or remove.", 0xd9534f), ephemeral=True)
+            
+        fill_tracker[uid] = current_role_ids
+        embed = make_clean_embed("🔄 Roles Saved & Cleared", f"Your current roles have been securely saved to the auto-matrix and removed from your profile:\n**{', '.join(removed_roles) if removed_roles else 'None (Missing Permissions)'}**\n\n*Type `/fill` again anytime to completely get them back!*", 0x2f3136)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @tree.command(name="revamp", description="Wipe and rebuild layout")
 @is_owner()
@@ -223,7 +249,7 @@ async def revamp(interaction: discord.Interaction):
     roles = {"Owner": 0x990000, "Administrator": 0xff0000, "Head Moderator": 0xffa500, "Moderator": 0x808080, "Middleman Manager": 0x4b0082, "Head Middleman": 0x800080, "Middleman": 0x008000, "Team Lead": 0x0000ff, "Chief Lead": 0x00008b, "Lead": 0x008080, "Cordinator": 0xff00ff, "Muted": 0x111111}
     for n, c in roles.items():
         if not discord.utils.get(interaction.guild.roles, name=n): 
-            await interaction.guild.create_role(name=name, color=discord.Color(c))
+            await interaction.guild.create_role(name=n, color=discord.Color(c))
             
     for channel in interaction.guild.channels:
         if channel != interaction.channel:
