@@ -54,6 +54,24 @@ def append_footer(embed: discord.Embed, ctx_or_interaction):
     )
     return embed
 
+# Global Check: Blocks users with the "Member" role from using any commands
+@bot.check
+async def block_member_role(ctx: commands.Context):
+    if ctx.guild:
+        member_role = discord.utils.get(ctx.guild.roles, name="Member")
+        if member_role in ctx.author.roles:
+            raise commands.CheckFailure("Users with the 'Member' role are restricted from using commands.")
+    return True
+
+# Error Handler for the Global Check (Works for text commands)
+@bot.event
+async def on_command_error(ctx: commands.Context, error):
+    if isinstance(error, commands.CheckFailure):
+        try:
+            await ctx.send(embed=create_embed("🔒 Denied", "Du darfst keine Commands benutzen, da du die Rolle **Member** hast.", 0xd9534f), ephemeral=True)
+        except:
+            pass
+
 # Transcript Engine
 async def save_transcript(channel, category="General"):
     guild = channel.guild
@@ -80,6 +98,10 @@ class SupportTicketView(discord.ui.View):
 
     @discord.ui.button(label="Claim Ticket", style=discord.ButtonStyle.green, custom_id="btn_claim_support", emoji="✋")
     async def claim(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member_role = discord.utils.get(interaction.guild.roles, name="Member")
+        if member_role in interaction.user.roles:
+            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Mit der Rolle **Member** kannst du keine Tickets claimen.", 0xd9534f), ephemeral=True)
+            
         if interaction.channel.name == f"ticket-{interaction.user.name.lower()}".replace(" ", "-"):
             return await interaction.response.send_message(embed=create_embed("❌ Error", "You cannot claim your own support ticket.", 0xd9534f), ephemeral=True)
         
@@ -90,6 +112,10 @@ class SupportTicketView(discord.ui.View):
 
     @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.red, custom_id="btn_close_support", emoji="🔒")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member_role = discord.utils.get(interaction.guild.roles, name="Member")
+        if member_role in interaction.user.roles:
+            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Mit der Rolle **Member** kannst du keine Tickets schließen.", 0xd9534f), ephemeral=True)
+
         await interaction.response.send_message(embed=create_embed("🔒 Closing", "Saving archive logs... Channel will be deleted in 5 seconds."))
         await save_transcript(interaction.channel, "Support")
         await asyncio.sleep(5)
@@ -101,6 +127,10 @@ class SupportPanel(discord.ui.View):
 
     @discord.ui.button(label="Request Support", style=discord.ButtonStyle.blurple, custom_id="btn_open_support", emoji="🎫")
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member_role = discord.utils.get(interaction.guild.roles, name="Member")
+        if member_role in interaction.user.roles:
+            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Mit der Rolle **Member** kannst du keine Support-Tickets erstellen.", 0xd9534f), ephemeral=True)
+
         await interaction.response.defer(ephemeral=True)
         name = f"ticket-{interaction.user.name.lower()}".replace(" ", "-")
         if discord.utils.get(interaction.guild.text_channels, name=name):
@@ -124,6 +154,10 @@ class MiddlemanTicketView(discord.ui.View):
 
     @discord.ui.button(label="Claim Deal", style=discord.ButtonStyle.green, custom_id="btn_claim_mm", emoji="✋")
     async def claim_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member_role = discord.utils.get(interaction.guild.roles, name="Member")
+        if member_role in interaction.user.roles:
+            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Mit der Rolle **Member** kannst du keine MM-Tickets claimen.", 0xd9534f), ephemeral=True)
+
         if interaction.channel.name == f"ticket-mm_{interaction.user.name.lower()}".replace(" ", "-"):
             return await interaction.response.send_message(embed=create_embed("❌ Error", "You cannot handle your own transaction session.", 0xd9534f), ephemeral=True)
 
@@ -134,6 +168,10 @@ class MiddlemanTicketView(discord.ui.View):
 
     @discord.ui.button(label="Close Session", style=discord.ButtonStyle.red, custom_id="btn_close_mm", emoji="🔒")
     async def close_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member_role = discord.utils.get(interaction.guild.roles, name="Member")
+        if member_role in interaction.user.roles:
+            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Mit der Rolle **Member** kannst du keine MM-Sessions schließen.", 0xd9534f), ephemeral=True)
+
         await interaction.response.send_message(create_embed("🔒 Closing", "Securing trade history transcripts... Channel will be deleted in 5 seconds."))
         await save_transcript(interaction.channel, "Middleman")
         await asyncio.sleep(5)
@@ -145,6 +183,10 @@ class MiddlemanPanel(discord.ui.View):
 
     @discord.ui.button(label="Request Middleman", style=discord.ButtonStyle.blurple, custom_id="btn_open_mm", emoji="💳")
     async def open_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member_role = discord.utils.get(interaction.guild.roles, name="Member")
+        if member_role in interaction.user.roles:
+            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Mit der Rolle **Member** kannst du keine Middleman-Anfragen erstellen.", 0xd9534f), ephemeral=True)
+
         await interaction.response.defer(ephemeral=True)
         name = f"ticket-mm_{interaction.user.name.lower()}".replace(" ", "-")
         if discord.utils.get(interaction.guild.text_channels, name=name):
@@ -553,6 +595,20 @@ async def on_ready():
     except Exception as e: 
         print(f"Sync core anomaly: {e}")
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="over transactions"))
+
+@bot.event
+async def on_app_command_completion(interaction: discord.Interaction, command: app_commands.Command):
+    # Triggers on successful Slash Command setups
+    pass
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    # Error Handler specifically for Slash Commands context tracking
+    if "CheckFailure" in str(error):
+        try:
+            await interaction.response.send_message(embed=create_embed("🔒 Denied", "Du darfst keine Commands benutzen, da du die Rolle **Member** hast.", 0xd9534f), ephemeral=True)
+        except:
+            pass
 
 @bot.event
 async def on_message(message):
