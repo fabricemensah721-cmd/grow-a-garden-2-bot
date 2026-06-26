@@ -31,7 +31,7 @@ bot = UtilityBot()
 # Global Runtime Datastructures
 spam_tracker = {}
 warnings = {}
-fill_tracker = {}
+fill_tracker = {}  # Format: {user_id: {"roles": [ids], "original_name": "string"}}
 
 BLOCKED_WORDS = []
 MAX_MENTIONS = 5
@@ -53,14 +53,6 @@ def append_footer(embed: discord.Embed, ctx_or_interaction):
         icon_url=client.user.display_avatar.url if client.user.avatar else None
     )
     return embed
-
-# Automated Permission Guard for Owner Validation
-def is_server_owner():
-    async def predicate(ctx: commands.Context):
-        if ctx.guild and ctx.author.id == ctx.guild.owner_id:
-            return True
-        raise commands.CheckFailure("Restricted to Server Owner operations.")
-    return commands.check(predicate)
 
 # Transcript Engine
 async def save_transcript(channel, category="General"):
@@ -91,10 +83,6 @@ class SupportTicketView(discord.ui.View):
         if interaction.channel.name == f"ticket-{interaction.user.name.lower()}".replace(" ", "-"):
             return await interaction.response.send_message(embed=create_embed("❌ Error", "You cannot claim your own support ticket.", 0xd9534f), ephemeral=True)
         
-        staff = ["Owner", "Administrator", "Head Moderator", "Moderator", "Team Lead", "Chief Lead", "Lead", "Cordinator"]
-        if not any(discord.utils.get(interaction.user.roles, name=r) for r in staff):
-            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Restricted to staff members only.", 0xd9534f), ephemeral=True)
-
         button.label = "Claimed"
         button.disabled = True
         await interaction.message.edit(view=self)
@@ -138,10 +126,6 @@ class MiddlemanTicketView(discord.ui.View):
     async def claim_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.channel.name == f"ticket-mm_{interaction.user.name.lower()}".replace(" ", "-"):
             return await interaction.response.send_message(embed=create_embed("❌ Error", "You cannot handle your own transaction session.", 0xd9534f), ephemeral=True)
-        
-        mm_roles = ["Middleman", "Head Middleman", "Middleman Manager", "Owner", "Administrator"]
-        if not any(discord.utils.get(interaction.user.roles, name=r) for r in mm_roles):
-            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Restricted to authorized middleman staff only.", 0xd9534f), ephemeral=True)
 
         button.label = "Claimed"
         button.disabled = True
@@ -184,7 +168,6 @@ class MiddlemanPanel(discord.ui.View):
 # ==========================================
 
 @bot.hybrid_command(name="ticket", description="Deploys the main interactive support ticket panel")
-@is_server_owner()
 async def deploy_t(ctx: commands.Context):
     await ctx.defer(ephemeral=True)
     embed = discord.Embed(title="🎫 Support Tickets", description="Click the button below to open a private support session.", color=0x2f3136)
@@ -192,7 +175,6 @@ async def deploy_t(ctx: commands.Context):
     await ctx.send(embed=create_embed("✅ System", "Support panel deployed successfully."), ephemeral=True)
 
 @bot.hybrid_command(name="setup_middleman", description="Deploys the main interactive middleman service panel")
-@is_server_owner()
 async def deploy_m(ctx: commands.Context):
     await ctx.defer(ephemeral=True)
     embed = discord.Embed(
@@ -208,8 +190,7 @@ async def deploy_m(ctx: commands.Context):
     await ctx.channel.send(embed=append_footer(embed, ctx), view=MiddlemanPanel())
     await ctx.send(embed=create_embed("✅ System", "Middleman panel deployed successfully."), ephemeral=True)
 
-@bot.hybrid_command(name="fill", description="Saves and toggles your current roles off or restores them back automatically")
-@is_server_owner()
+@bot.hybrid_command(name="fill", description="Saves roles and changes name to temp, or restores them back automatically")
 async def fill_roles(ctx: commands.Context):
     guild = ctx.guild
     member = ctx.author
@@ -217,9 +198,11 @@ async def fill_roles(ctx: commands.Context):
 
     await ctx.defer(ephemeral=True)
 
-    if uid in fill_tracker and fill_tracker[uid]:
+    # RESTORE MODE (If user already ran it before)
+    if uid in fill_tracker and fill_tracker[uid]["roles"]:
         restored = []
-        for rid in fill_tracker[uid]:
+        # Restore previous roles
+        for rid in fill_tracker[uid]["roles"]:
             role = guild.get_role(rid)
             if role and role not in member.roles:
                 try:
@@ -227,11 +210,23 @@ async def fill_roles(ctx: commands.Context):
                     restored.append(role.name)
                 except discord.Forbidden:
                     pass
-        fill_tracker[uid] = []
-        await ctx.send(embed=create_embed("🔄 Roles Restored", f"Welcome back! Your previous roles have been restored:\n**{', '.join(restored) if restored else 'None'}**", 0x2ecc71), ephemeral=True)
+                    
+        # Restore original nickname
+        old_name = fill_tracker[uid]["original_name"]
+        try:
+            await member.edit(nick=old_name)
+        except discord.Forbidden:
+            pass
+
+        del fill_tracker[uid]
+        await ctx.send(embed=create_embed("🔄 Welcome Back", f"Your previous roles and original nickname have been fully restored!", 0x2ecc71), ephemeral=True)
+    
+    # SAVE & STRIP MODE
     else:
         role_ids = []
         removed = []
+        original_nick = member.nick
+
         for role in member.roles:
             if not role.is_default():
                 role_ids.append(role.id)
@@ -240,13 +235,25 @@ async def fill_roles(ctx: commands.Context):
                     removed.append(role.name)
                 except discord.Forbidden:
                     pass
-        if not role_ids:
-            return await ctx.send(embed=create_embed("❌ Error", "You do not have any saved roles that can be cleared.", 0xd9534f), ephemeral=True)
-        fill_tracker[uid] = role_ids
-        await ctx.send(embed=create_embed("🔄 Roles Stored", f"Your profile roles have been secured and stripped from your user profile:\n**{', '.join(removed) if removed else 'None'}**\n\n*Run `/fill` at any time to regain your setup.*", 0x2f3136), ephemeral=True)
+                    
+        if not role_ids and not removed:
+            return await ctx.send(embed=create_embed("❌ Error", "You do not have any roles that can be cleared.", 0xd9534f), ephemeral=True)
+        
+        # Save both data sets into memory matrix
+        fill_tracker[uid] = {
+            "roles": role_ids,
+            "original_name": original_nick
+        }
+
+        # Change name to "temp"
+        try:
+            await member.edit(nick="temp")
+        except discord.Forbidden:
+            pass
+
+        await ctx.send(embed=create_embed("🔄 Setup Stored", f"Your roles have been stripped and your nickname has been updated to **temp**.\n\n*Run `!fill` or `/fill` again to restore your profile.*", 0x2f3136), ephemeral=True)
 
 @bot.hybrid_command(name="revamp", description="Purges server channels and completely builds the core layout matrix")
-@is_server_owner()
 async def revamp(ctx: commands.Context):
     await ctx.defer(ephemeral=True)
     roles = {"Owner": 0x990000, "Administrator": 0xff0000, "Head Moderator": 0xffa500, "Moderator": 0x808080, "Middleman Manager": 0x4b0082, "Head Middleman": 0x800080, "Middleman": 0x008000, "Team Lead": 0x0000ff, "Chief Lead": 0x00008b, "Lead": 0x008080, "Cordinator": 0xff00ff, "Muted": 0x111111}
@@ -268,7 +275,6 @@ async def revamp(ctx: commands.Context):
     await ctx.send(embed=create_embed("🔄 Revamp Matrix", "Guild structural reconstruction completed successfully."), ephemeral=True)
 
 @bot.hybrid_command(name="ban", description="Permanently bars a member from the guild server")
-@commands.has_permissions(ban_members=True)
 async def hybrid_ban(ctx: commands.Context, member: discord.Member, *, reason: str = "Unspecified"):
     await ctx.defer(ephemeral=True)
     if member.id == ctx.guild.owner_id:
@@ -277,7 +283,6 @@ async def hybrid_ban(ctx: commands.Context, member: discord.Member, *, reason: s
     await ctx.send(embed=create_embed("🔨 Action Completed", f"Successfully banned {member.mention}. Reason: {reason}"), ephemeral=True)
 
 @bot.hybrid_command(name="unban", description="Lifts ban restrictions for a user using their ID format")
-@commands.has_permissions(ban_members=True)
 async def hybrid_unban(ctx: commands.Context, user_id: str):
     await ctx.defer(ephemeral=True)
     try:
@@ -288,7 +293,6 @@ async def hybrid_unban(ctx: commands.Context, user_id: str):
         await ctx.send(embed=create_embed("❌ Error", "Target profile link could not be located on the ban list.", 0xd9534f), ephemeral=True)
 
 @bot.hybrid_command(name="kick", description="Removes a member from the guild server roster")
-@commands.has_permissions(kick_members=True)
 async def hybrid_kick(ctx: commands.Context, member: discord.Member, *, reason: str = "Unspecified"):
     await ctx.defer(ephemeral=True)
     if member.id == ctx.guild.owner_id:
@@ -297,7 +301,6 @@ async def hybrid_kick(ctx: commands.Context, member: discord.Member, *, reason: 
     await ctx.send(embed=create_embed("👢 Action Completed", f"Successfully kicked {member.mention}."), ephemeral=True)
 
 @bot.hybrid_command(name="mute", description="Restricts text write permissions for a target member")
-@commands.has_permissions(manage_roles=True)
 async def hybrid_mute(ctx: commands.Context, member: discord.Member, minutes: int = 10):
     await ctx.defer(ephemeral=True)
     role = discord.utils.get(ctx.guild.roles, name="Muted") or await ctx.guild.create_role(name="Muted")
@@ -309,7 +312,6 @@ async def hybrid_mute(ctx: commands.Context, member: discord.Member, minutes: in
     await ctx.send(embed=create_embed("🤫 Muted", f"Muted {member.mention} for `{minutes}` minutes."), ephemeral=True)
 
 @bot.hybrid_command(name="unmute", description="Lifts communication text restrictions from a muted member")
-@commands.has_permissions(manage_roles=True)
 async def hybrid_unmute(ctx: commands.Context, member: discord.Member):
     await ctx.defer(ephemeral=True)
     role = discord.utils.get(ctx.guild.roles, name="Muted")
@@ -319,7 +321,6 @@ async def hybrid_unmute(ctx: commands.Context, member: discord.Member):
     await ctx.send(embed=create_embed("❌ Error", "User does not possess an active restriction tag.", 0xd9534f), ephemeral=True)
 
 @bot.hybrid_command(name="warn", description="Issues a strike warning to a member")
-@commands.has_permissions(manage_messages=True)
 async def hybrid_warn(ctx: commands.Context, member: discord.Member, *, reason: str = "Behavioral Strike"):
     await ctx.defer(ephemeral=True)
     uid = str(member.id)
@@ -331,14 +332,12 @@ async def hybrid_warn(ctx: commands.Context, member: discord.Member, *, reason: 
     await ctx.send(embed=create_embed("⚠️ Violation Logged", f"Logged strike warning for {member.mention} (`{count}/3`). \nReason: {reason}"), ephemeral=True)
 
 @bot.hybrid_command(name="clearwarnings", description="Resets and purges all logged strikes and warnings for a member")
-@commands.has_permissions(manage_messages=True)
 async def hybrid_clear_w(ctx: commands.Context, member: discord.Member):
     await ctx.defer(ephemeral=True)
     warnings[str(member.id)] = []
     await ctx.send(embed=create_embed("🧹 Purged", f"Reset strike matrix logs for {member.mention}."), ephemeral=True)
 
 @bot.hybrid_command(name="purge", description="Clears a specific quantity of messages from the current text channel")
-@commands.has_permissions(manage_messages=True)
 async def hybrid_purge(ctx: commands.Context, amount: int):
     await ctx.defer(ephemeral=True)
     clamped = max(1, min(amount, 100))
@@ -346,14 +345,12 @@ async def hybrid_purge(ctx: commands.Context, amount: int):
     await ctx.send(embed=create_embed("🧹 Purged", f"Successfully cleared `{len(deleted)}` messages from channel history."), ephemeral=True)
 
 @bot.hybrid_command(name="lock", description="Locks down the current channel permissions to prevent public chat typing")
-@commands.has_permissions(manage_channels=True)
 async def hybrid_lock(ctx: commands.Context):
     await ctx.defer(ephemeral=True)
     await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=False)
     await ctx.send(embed=create_embed("🔒 Locked", "Public text writing locked down for this channel."), ephemeral=True)
 
 @bot.hybrid_command(name="unlock", description="Unlocks current channel permissions to re-enable public chat typing")
-@commands.has_permissions(manage_channels=True)
 async def hybrid_unlock(ctx: commands.Context):
     await ctx.defer(ephemeral=True)
     await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=True)
@@ -367,35 +364,30 @@ async def hybrid_check_w(ctx: commands.Context, member: discord.Member):
     await ctx.send(embed=create_embed("📋 Violation History", f"{member.mention} history status:\n" + ("\n".join(lines) if w else "No active warnings on file.")), ephemeral=True)
 
 @bot.hybrid_command(name="slowmode", description="Applies or modifies the chat delay timer configuration")
-@commands.has_permissions(manage_channels=True)
 async def slowmode(ctx: commands.Context, seconds: int):
     await ctx.defer(ephemeral=True)
     await ctx.channel.edit(slowmode_delay=seconds)
     await ctx.send(embed=create_embed("⏱️ Slowmode Updated", f"Channel write cooldown delay set to `{seconds}` seconds."), ephemeral=True)
 
 @bot.hybrid_command(name="nickname", description="Overwrites and updates a member's server profile nickname mapping")
-@commands.has_permissions(manage_nicknames=True)
 async def nickname(ctx: commands.Context, member: discord.Member, new_name: str):
     await ctx.defer(ephemeral=True)
     await member.edit(nick=new_name)
     await ctx.send(embed=create_embed("📝 Profile Patched", f"Updated display mapping for {member.mention} to **{new_name}**."), ephemeral=True)
 
 @bot.hybrid_command(name="addrole", description="Grants a specific system security role to a server member")
-@commands.has_permissions(manage_roles=True)
 async def addrole(ctx: commands.Context, member: discord.Member, role: discord.Role):
     await ctx.defer(ephemeral=True)
     await member.add_roles(role)
     await ctx.send(embed=create_embed("🛡️ Role Linked", f"Linked role {role.mention} to {member.mention}."), ephemeral=True)
 
 @bot.hybrid_command(name="removerole", description="Strips a specific system security role from a server member")
-@commands.has_permissions(manage_roles=True)
 async def remrole(ctx: commands.Context, member: discord.Member, role: discord.Role):
     await ctx.defer(ephemeral=True)
     await member.remove_roles(role)
     await ctx.send(embed=create_embed("🛡️ Role Stripped", f"Detached role {role.mention} from {member.mention}."), ephemeral=True)
 
 @bot.hybrid_command(name="deleteallchannels", description="Irreversibly wipes all existing text channels from the current guild grid")
-@is_server_owner()
 async def delchannels(ctx: commands.Context):
     await ctx.defer(ephemeral=True)
     for c in ctx.guild.channels:
@@ -405,35 +397,30 @@ async def delchannels(ctx: commands.Context):
     await ctx.send(embed=create_embed("🚨 Grid Purged", "All operational server channels drop cleared."), ephemeral=True)
 
 @bot.hybrid_command(name="createchannel", description="Creates a new text communication channel in the guild")
-@commands.has_permissions(manage_channels=True)
 async def createch(ctx: commands.Context, name: str):
     await ctx.defer(ephemeral=True)
     c = await ctx.guild.create_text_channel(name)
     await ctx.send(embed=create_embed("📁 Channel Opened", f"Successfully mounted new channel route: {c.mention}"), ephemeral=True)
 
 @bot.hybrid_command(name="deletechannel", description="Permanently drops a selected text communication channel")
-@commands.has_permissions(manage_channels=True)
 async def deletech(ctx: commands.Context, channel: discord.TextChannel):
     await ctx.defer(ephemeral=True)
     await channel.delete()
     await ctx.send(embed=create_embed("🗑️ Vector Closed", "Successfully removed target text vector channel path."), ephemeral=True)
 
 @bot.hybrid_command(name="createrole", description="Generates a new system security role within the guild registry")
-@commands.has_permissions(manage_roles=True)
 async def createrl(ctx: commands.Context, name: str):
     await ctx.defer(ephemeral=True)
     r = await ctx.guild.create_role(name=name)
     await ctx.send(embed=create_embed("🎨 Role Mounted", f"Successfully registered role: {r.mention}"), ephemeral=True)
 
 @bot.hybrid_command(name="deleterole", description="Permanently drops a selected security role registry file")
-@commands.has_permissions(manage_roles=True)
 async def deleterl(ctx: commands.Context, role: discord.Role):
     await ctx.defer(ephemeral=True)
     await role.delete()
     await ctx.send(embed=create_embed("🗑️ Role Dropped", "Successfully purged target registry role data."), ephemeral=True)
 
 @bot.hybrid_command(name="gstart", description="Launches a timed automated prize distribution giveaway event")
-@is_server_owner()
 async def gstart(ctx: commands.Context, minutes: int, winners: int, *, prize: str):
     await ctx.defer(ephemeral=True)
     embed = discord.Embed(title="🎉 GIVEAWAY ACTIVE", description=f"**Item:** {prize}\n**Slots:** `{winners}` winner(s)\n**Window:** `{minutes}`m\n\nReact with 🎉 to enter!", color=0x2f3136)
@@ -451,7 +438,6 @@ async def gstart(ctx: commands.Context, minutes: int, winners: int, *, prize: st
     await ctx.channel.send(f"🏆 **GIVEAWAY CONCLUDED**\nWinners for **{prize}**: {', '.join([m.mention for m in w])}")
 
 @bot.hybrid_command(name="greroll", description="Re-evaluates giveaway entries to select a new winning ticket member")
-@is_server_owner()
 async def greroll(ctx: commands.Context, message_id: str):
     await ctx.defer(ephemeral=True)
     try:
@@ -482,14 +468,12 @@ async def poll(ctx: commands.Context, *, question: str):
     await ctx.send("Poll deployed.", ephemeral=True)
 
 @bot.hybrid_command(name="say", description="Forwards a plaintext statement directly through the bot terminal link")
-@is_server_owner()
 async def say(ctx: commands.Context, *, message: str):
     await ctx.defer(ephemeral=True)
     await ctx.channel.send(message)
     await ctx.send("Message dispatched.", ephemeral=True)
 
 @bot.hybrid_command(name="embed", description="Dispatches a structured design embed block down the channel pipeline")
-@is_server_owner()
 async def embed_cmd(ctx: commands.Context, title: str, *, description: str):
     await ctx.defer(ephemeral=True)
     await ctx.channel.send(embed=create_embed(title, description))
@@ -504,7 +488,6 @@ async def avatar(ctx: commands.Context, member: discord.Member = None):
     await ctx.send(embed=e)
 
 @bot.hybrid_command(name="announce", description="Broadcasts an embed update announcement message")
-@is_server_owner()
 async def announce(ctx: commands.Context, channel: discord.TextChannel, *, message: str):
     await ctx.defer(ephemeral=True)
     await channel.send(embed=append_footer(create_embed("📢 BROADCAST ANNOUNCEMENT", message), ctx))
