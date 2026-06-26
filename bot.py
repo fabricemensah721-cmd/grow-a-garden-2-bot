@@ -190,8 +190,8 @@ async def deploy_m(ctx: commands.Context):
     await ctx.channel.send(embed=append_footer(embed, ctx), view=MiddlemanPanel())
     await ctx.send(embed=create_embed("✅ System", "Middleman panel deployed successfully."), ephemeral=True)
 
-@bot.hybrid_command(name="fill", description="Saves roles and changes name to temp, or restores them back automatically")
-async def fill_roles(ctx: commands.Context):
+@bot.hybrid_command(name="temp", description="Saves roles and changes name to temp, or restores them back automatically")
+async def temp_cmd(ctx: commands.Context):
     guild = ctx.guild
     member = ctx.author
     uid = member.id
@@ -251,7 +251,7 @@ async def fill_roles(ctx: commands.Context):
         except discord.Forbidden:
             pass
 
-        await ctx.send(embed=create_embed("🔄 Setup Stored", f"Your roles have been stripped and your nickname has been updated to **temp**.\n\n*Run `!fill` or `/fill` again to restore your profile.*", 0x2f3136), ephemeral=True)
+        await ctx.send(embed=create_embed("🔄 Setup Stored", f"Your roles have been stripped and your nickname has been updated to **temp**.\n\n*Run `!temp` or `/temp` again to restore your profile.*", 0x2f3136), ephemeral=True)
 
 @bot.hybrid_command(name="revamp", description="Purges server channels and completely builds the core layout matrix")
 async def revamp(ctx: commands.Context):
