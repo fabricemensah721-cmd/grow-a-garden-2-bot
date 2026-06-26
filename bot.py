@@ -38,6 +38,13 @@ MAX_MENTIONS = 5
 MAX_CAPS_PERCENT = 70
 DISCORD_INVITE = "discord.gg"
 
+# List of commands that ANY user is allowed to use
+PUBLIC_COMMANDS = {
+    "help", "temp", "verify", "hit", "poll", "avatar", 
+    "serverinfo", "userinfo", "membercount", "ping", 
+    "coinflip", "dice", "8ball", "choose", "uptime", "botinfo"
+}
+
 # ==========================================
 # DESIGN & EMBED UTILITIES
 # ==========================================
@@ -54,15 +61,19 @@ def append_footer(embed: discord.Embed, ctx_or_interaction):
     )
     return embed
 
-# Global Check: ONLY allows the Server Owner to use any commands
+# Global Check: Restricts admin commands to Owner, allows PUBLIC_COMMANDS for everyone
 @bot.check
 async def restrict_to_owner(ctx: commands.Context):
     if ctx.guild:
+        # If the command is public, let everyone use it
+        if ctx.command.name in PUBLIC_COMMANDS:
+            return True
+        # Otherwise, strictly require Server Owner status
         if ctx.author.id != ctx.guild.owner_id:
-            raise commands.CheckFailure("Only the server owner can execute commands.")
+            raise commands.CheckFailure("Only the server owner can execute administrative commands.")
     return True
 
-# Helper to check if an interacting user is the owner
+# Helper to check if an interacting user is the owner (used for panel buttons)
 def is_not_owner(interaction: discord.Interaction) -> bool:
     if interaction.guild:
         return interaction.user.id != interaction.guild.owner_id
@@ -73,7 +84,7 @@ def is_not_owner(interaction: discord.Interaction) -> bool:
 async def on_command_error(ctx: commands.Context, error):
     if isinstance(error, commands.CheckFailure):
         try:
-            await ctx.send(embed=create_embed("🔒 Denied", "Nur der **Server Owner** darf Commands benutzen.", 0xd9534f), ephemeral=True)
+            await ctx.send(embed=create_embed("🔒 Denied", "Only the **Server Owner** is authorized to use this command.", 0xd9534f), ephemeral=True)
         except:
             pass
 
@@ -104,7 +115,7 @@ class SupportTicketView(discord.ui.View):
     @discord.ui.button(label="Claim Ticket", style=discord.ButtonStyle.green, custom_id="btn_claim_support", emoji="✋")
     async def claim(self, interaction: discord.Interaction, button: discord.ui.Button):
         if is_not_owner(interaction):
-            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Nur der **Server Owner** darf Tickets claimen.", 0xd9534f), ephemeral=True)
+            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Only the **Server Owner** is authorized to claim tickets.", 0xd9534f), ephemeral=True)
             
         if interaction.channel.name == f"ticket-{interaction.user.name.lower()}".replace(" ", "-"):
             return await interaction.response.send_message(embed=create_embed("❌ Error", "You cannot claim your own support ticket.", 0xd9534f), ephemeral=True)
@@ -117,7 +128,7 @@ class SupportTicketView(discord.ui.View):
     @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.red, custom_id="btn_close_support", emoji="🔒")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
         if is_not_owner(interaction):
-            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Nur der **Server Owner** darf Tickets schließen.", 0xd9534f), ephemeral=True)
+            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Only the **Server Owner** is authorized to close tickets.", 0xd9534f), ephemeral=True)
 
         await interaction.response.send_message(embed=create_embed("🔒 Closing", "Saving archive logs... Channel will be deleted in 5 seconds."))
         await save_transcript(interaction.channel, "Support")
@@ -130,9 +141,7 @@ class SupportPanel(discord.ui.View):
 
     @discord.ui.button(label="Request Support", style=discord.ButtonStyle.blurple, custom_id="btn_open_support", emoji="🎫")
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if is_not_owner(interaction):
-            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Nur der **Server Owner** darf Support-Tickets erstellen.", 0xd9534f), ephemeral=True)
-
+        # Allow normal users to create a ticket
         await interaction.response.defer(ephemeral=True)
         name = f"ticket-{interaction.user.name.lower()}".replace(" ", "-")
         if discord.utils.get(interaction.guild.text_channels, name=name):
@@ -157,7 +166,7 @@ class MiddlemanTicketView(discord.ui.View):
     @discord.ui.button(label="Claim Deal", style=discord.ButtonStyle.green, custom_id="btn_claim_mm", emoji="✋")
     async def claim_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if is_not_owner(interaction):
-            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Nur der **Server Owner** darf MM-Tickets claimen.", 0xd9534f), ephemeral=True)
+            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Only the **Server Owner** is authorized to claim middleman tickets.", 0xd9534f), ephemeral=True)
 
         if interaction.channel.name == f"ticket-mm_{interaction.user.name.lower()}".replace(" ", "-"):
             return await interaction.response.send_message(embed=create_embed("❌ Error", "You cannot handle your own transaction session.", 0xd9534f), ephemeral=True)
@@ -170,7 +179,7 @@ class MiddlemanTicketView(discord.ui.View):
     @discord.ui.button(label="Close Session", style=discord.ButtonStyle.red, custom_id="btn_close_mm", emoji="🔒")
     async def close_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if is_not_owner(interaction):
-            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Nur der **Server Owner** darf MM-Sessions schließen.", 0xd9534f), ephemeral=True)
+            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Only the **Server Owner** is authorized to close middleman sessions.", 0xd9534f), ephemeral=True)
 
         await interaction.response.send_message(create_embed("🔒 Closing", "Securing trade history transcripts... Channel will be deleted in 5 seconds."))
         await save_transcript(interaction.channel, "Middleman")
@@ -183,9 +192,7 @@ class MiddlemanPanel(discord.ui.View):
 
     @discord.ui.button(label="Request Middleman", style=discord.ButtonStyle.blurple, custom_id="btn_open_mm", emoji="💳")
     async def open_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if is_not_owner(interaction):
-            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Nur der **Server Owner** darf Middleman-Anfragen erstellen.", 0xd9534f), ephemeral=True)
-
+        # Allow normal users to open a Middleman session
         await interaction.response.defer(ephemeral=True)
         name = f"ticket-mm_{interaction.user.name.lower()}".replace(" ", "-")
         if discord.utils.get(interaction.guild.text_channels, name=name):
@@ -208,6 +215,7 @@ class MiddlemanPanel(discord.ui.View):
 # HYBRID COMMAND SPHERE (SLASH + PREFIX ENGINE)
 # ==========================================
 
+# ADMIN COMMANDS (Owner Only)
 @bot.hybrid_command(name="ticket", description="Deploys the main interactive support ticket panel")
 async def deploy_t(ctx: commands.Context):
     await ctx.defer(ephemeral=True)
@@ -230,69 +238,6 @@ async def deploy_m(ctx: commands.Context):
     )
     await ctx.channel.send(embed=append_footer(embed, ctx), view=MiddlemanPanel())
     await ctx.send(embed=create_embed("✅ System", "Middleman panel deployed successfully."), ephemeral=True)
-
-@bot.hybrid_command(name="temp", description="Saves roles and changes name to temp, or restores them back automatically")
-async def temp_cmd(ctx: commands.Context):
-    guild = ctx.guild
-    member = ctx.author
-    uid = member.id
-
-    await ctx.defer(ephemeral=True)
-
-    # RESTORE MODE (If user already ran it before)
-    if uid in fill_tracker and fill_tracker[uid]["roles"]:
-        restored = []
-        # Restore previous roles
-        for rid in fill_tracker[uid]["roles"]:
-            role = guild.get_role(rid)
-            if role and role not in member.roles:
-                try:
-                    await member.add_roles(role)
-                    restored.append(role.name)
-                except discord.Forbidden:
-                    pass
-                    
-        # Restore original nickname
-        old_name = fill_tracker[uid]["original_name"]
-        try:
-            await member.edit(nick=old_name)
-        except discord.Forbidden:
-            pass
-
-        del fill_tracker[uid]
-        await ctx.send(embed=create_embed("🔄 Welcome Back", f"Your previous roles and original nickname have been fully restored!", 0x2ecc71), ephemeral=True)
-    
-    # SAVE & STRIP MODE
-    else:
-        role_ids = []
-        removed = []
-        original_nick = member.nick
-
-        for role in member.roles:
-            if not role.is_default():
-                role_ids.append(role.id)
-                try:
-                    await member.remove_roles(role)
-                    removed.append(role.name)
-                except discord.Forbidden:
-                    pass
-                    
-        if not role_ids and not removed:
-            return await ctx.send(embed=create_embed("❌ Error", "You do not have any roles that can be cleared.", 0xd9534f), ephemeral=True)
-        
-        # Save both data sets into memory matrix
-        fill_tracker[uid] = {
-            "roles": role_ids,
-            "original_name": original_nick
-        }
-
-        # Change name to "temp"
-        try:
-            await member.edit(nick="temp")
-        except discord.Forbidden:
-            pass
-
-        await ctx.send(embed=create_embed("🔄 Setup Stored", f"Your roles have been stripped and your nickname has been updated to **temp**.\n\n*Run `!temp` or `/temp` again to restore your profile.*", 0x2f3136), ephemeral=True)
 
 @bot.hybrid_command(name="revamp", description="Purges server channels and completely builds the core layout matrix")
 async def revamp(ctx: commands.Context):
@@ -492,6 +437,83 @@ async def greroll(ctx: commands.Context, message_id: str):
     except: 
         await ctx.send("Invalid target message identification ID.", ephemeral=True)
 
+@bot.hybrid_command(name="say", description="Forwards a plaintext statement directly through the bot terminal link")
+async def say(ctx: commands.Context, *, message: str):
+    await ctx.defer(ephemeral=True)
+    await ctx.channel.send(message)
+    await ctx.send("Message dispatched.", ephemeral=True)
+
+@bot.hybrid_command(name="embed", description="Dispatches a structured design embed block down the channel pipeline")
+async def embed_cmd(ctx: commands.Context, title: str, *, description: str):
+    await ctx.defer(ephemeral=True)
+    await ctx.channel.send(embed=create_embed(title, description))
+    await ctx.send("Embed deployed.", ephemeral=True)
+
+@bot.hybrid_command(name="announce", description="Broadcasts an embed update announcement message")
+async def announce(ctx: commands.Context, channel: discord.TextChannel, *, message: str):
+    await ctx.defer(ephemeral=True)
+    await channel.send(embed=append_footer(create_embed("📢 BROADCAST ANNOUNCEMENT", message), ctx))
+    await ctx.send("Broadcast successfully shipped.", ephemeral=True)
+
+
+# PUBLIC COMMANDS (Available for everyone)
+@bot.hybrid_command(name="temp", description="Saves roles and changes name to temp, or restores them back automatically")
+async def temp_cmd(ctx: commands.Context):
+    guild = ctx.guild
+    member = ctx.author
+    uid = member.id
+
+    await ctx.defer(ephemeral=True)
+
+    if uid in fill_tracker and fill_tracker[uid]["roles"]:
+        restored = []
+        for rid in fill_tracker[uid]["roles"]:
+            role = guild.get_role(rid)
+            if role and role not in member.roles:
+                try:
+                    await member.add_roles(role)
+                    restored.append(role.name)
+                except discord.Forbidden:
+                    pass
+                    
+        old_name = fill_tracker[uid]["original_name"]
+        try:
+            await member.edit(nick=old_name)
+        except discord.Forbidden:
+            pass
+
+        del fill_tracker[uid]
+        await ctx.send(embed=create_embed("🔄 Welcome Back", f"Your previous roles and original nickname have been fully restored!", 0x2ecc71), ephemeral=True)
+    
+    else:
+        role_ids = []
+        removed = []
+        original_nick = member.nick
+
+        for role in member.roles:
+            if not role.is_default():
+                role_ids.append(role.id)
+                try:
+                    await member.remove_roles(role)
+                    removed.append(role.name)
+                except discord.Forbidden:
+                    pass
+                    
+        if not role_ids and not removed:
+            return await ctx.send(embed=create_embed("❌ Error", "You do not have any roles that can be cleared.", 0xd9534f), ephemeral=True)
+        
+        fill_tracker[uid] = {
+            "roles": role_ids,
+            "original_name": original_nick
+        }
+
+        try:
+            await member.edit(nick="temp")
+        except discord.Forbidden:
+            pass
+
+        await ctx.send(embed=create_embed("🔄 Setup Stored", f"Your roles have been stripped and your nickname has been updated to **temp**.\n\n*Run `!temp` or `/temp` again to restore your profile.*", 0x2f3136), ephemeral=True)
+
 @bot.hybrid_command(name="verify", description="Executes verification handshake to grant access")
 async def verify(ctx: commands.Context):
     await ctx.send(embed=create_embed("✅ Handshake Verified", "Security profiling checked cleared successfully."), ephemeral=True)
@@ -508,18 +530,6 @@ async def poll(ctx: commands.Context, *, question: str):
     await m.add_reaction("👎")
     await ctx.send("Poll deployed.", ephemeral=True)
 
-@bot.hybrid_command(name="say", description="Forwards a plaintext statement directly through the bot terminal link")
-async def say(ctx: commands.Context, *, message: str):
-    await ctx.defer(ephemeral=True)
-    await ctx.channel.send(message)
-    await ctx.send("Message dispatched.", ephemeral=True)
-
-@bot.hybrid_command(name="embed", description="Dispatches a structured design embed block down the channel pipeline")
-async def embed_cmd(ctx: commands.Context, title: str, *, description: str):
-    await ctx.defer(ephemeral=True)
-    await ctx.channel.send(embed=create_embed(title, description))
-    await ctx.send("Embed deployed.", ephemeral=True)
-
 @bot.hybrid_command(name="avatar", description="Fetches and displays a user profile avatar image matrix in full scale")
 async def avatar(ctx: commands.Context, member: discord.Member = None):
     t = member or ctx.author
@@ -527,12 +537,6 @@ async def avatar(ctx: commands.Context, member: discord.Member = None):
     e.set_author(name=f"Avatar: {t.name}")
     e.set_image(url=t.display_avatar.url)
     await ctx.send(embed=e)
-
-@bot.hybrid_command(name="announce", description="Broadcasts an embed update announcement message")
-async def announce(ctx: commands.Context, channel: discord.TextChannel, *, message: str):
-    await ctx.defer(ephemeral=True)
-    await channel.send(embed=append_footer(create_embed("📢 BROADCAST ANNOUNCEMENT", message), ctx))
-    await ctx.send("Broadcast successfully shipped.", ephemeral=True)
 
 @bot.hybrid_command(name="serverinfo", description="Displays full meta profile information metrics regarding this server guild")
 async def serverinfo(ctx: commands.Context):
@@ -603,7 +607,7 @@ async def on_app_command_completion(interaction: discord.Interaction, command: a
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if "CheckFailure" in str(error):
         try:
-            await interaction.response.send_message(embed=create_embed("🔒 Denied", "Nur der **Server Owner** darf Commands benutzen.", 0xd9534f), ephemeral=True)
+            await interaction.response.send_message(embed=create_embed("🔒 Denied", "Only the **Server Owner** is authorized to use this command.", 0xd9534f), ephemeral=True)
         except:
             pass
 
