@@ -33,9 +33,6 @@ spam_tracker = {}
 warnings = {}
 fill_tracker = {}  # Format: {user_id: {"roles": [ids], "original_name": "string"}}
 
-# trag hier die Namen ALLER Rollen ein, die keine Commands benutzen dürfen!
-RESTRICTED_ROLES = ["Member"] 
-
 BLOCKED_WORDS = []
 MAX_MENTIONS = 5
 MAX_CAPS_PERCENT = 70
@@ -57,28 +54,26 @@ def append_footer(embed: discord.Embed, ctx_or_interaction):
     )
     return embed
 
-# Global Check: Blocks users if they have ANY role listed in RESTRICTED_ROLES
+# Global Check: ONLY allows the Server Owner to use any commands
 @bot.check
-async def block_restricted_roles(ctx: commands.Context):
+async def restrict_to_owner(ctx: commands.Context):
     if ctx.guild:
-        user_role_names = [role.name for role in ctx.author.roles]
-        if any(r_role in user_role_names for r_role in RESTRICTED_ROLES):
-            raise commands.CheckFailure("User possesses a restricted role.")
+        if ctx.author.id != ctx.guild.owner_id:
+            raise commands.CheckFailure("Only the server owner can execute commands.")
     return True
 
-# Helper to check permissions on Button/UI Interactions
-def is_interaction_restricted(interaction: discord.Interaction) -> bool:
+# Helper to check if an interacting user is the owner
+def is_not_owner(interaction: discord.Interaction) -> bool:
     if interaction.guild:
-        user_role_names = [role.name for role in interaction.user.roles]
-        return any(r_role in user_role_names for r_role in RESTRICTED_ROLES)
-    return False
+        return interaction.user.id != interaction.guild.owner_id
+    return True
 
 # Error Handler for the Global Check (Works for text commands)
 @bot.event
 async def on_command_error(ctx: commands.Context, error):
     if isinstance(error, commands.CheckFailure):
         try:
-            await ctx.send(embed=create_embed("🔒 Denied", "Du darfst keine Commands benutzen, da du eine blockierte Rolle hast.", 0xd9534f), ephemeral=True)
+            await ctx.send(embed=create_embed("🔒 Denied", "Nur der **Server Owner** darf Commands benutzen.", 0xd9534f), ephemeral=True)
         except:
             pass
 
@@ -108,8 +103,8 @@ class SupportTicketView(discord.ui.View):
 
     @discord.ui.button(label="Claim Ticket", style=discord.ButtonStyle.green, custom_id="btn_claim_support", emoji="✋")
     async def claim(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if is_interaction_restricted(interaction):
-            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Deine Rolle erlaubt es dir nicht, Interaktionen zu nutzen.", 0xd9534f), ephemeral=True)
+        if is_not_owner(interaction):
+            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Nur der **Server Owner** darf Tickets claimen.", 0xd9534f), ephemeral=True)
             
         if interaction.channel.name == f"ticket-{interaction.user.name.lower()}".replace(" ", "-"):
             return await interaction.response.send_message(embed=create_embed("❌ Error", "You cannot claim your own support ticket.", 0xd9534f), ephemeral=True)
@@ -121,8 +116,8 @@ class SupportTicketView(discord.ui.View):
 
     @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.red, custom_id="btn_close_support", emoji="🔒")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if is_interaction_restricted(interaction):
-            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Deine Rolle erlaubt es dir nicht, Tickets zu schließen.", 0xd9534f), ephemeral=True)
+        if is_not_owner(interaction):
+            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Nur der **Server Owner** darf Tickets schließen.", 0xd9534f), ephemeral=True)
 
         await interaction.response.send_message(embed=create_embed("🔒 Closing", "Saving archive logs... Channel will be deleted in 5 seconds."))
         await save_transcript(interaction.channel, "Support")
@@ -135,8 +130,8 @@ class SupportPanel(discord.ui.View):
 
     @discord.ui.button(label="Request Support", style=discord.ButtonStyle.blurple, custom_id="btn_open_support", emoji="🎫")
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if is_interaction_restricted(interaction):
-            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Deine Rolle erlaubt es dir nicht, Support-Tickets zu erstellen.", 0xd9534f), ephemeral=True)
+        if is_not_owner(interaction):
+            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Nur der **Server Owner** darf Support-Tickets erstellen.", 0xd9534f), ephemeral=True)
 
         await interaction.response.defer(ephemeral=True)
         name = f"ticket-{interaction.user.name.lower()}".replace(" ", "-")
@@ -161,8 +156,8 @@ class MiddlemanTicketView(discord.ui.View):
 
     @discord.ui.button(label="Claim Deal", style=discord.ButtonStyle.green, custom_id="btn_claim_mm", emoji="✋")
     async def claim_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if is_interaction_restricted(interaction):
-            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Deine Rolle erlaubt es dir nicht, MM-Tickets zu claimen.", 0xd9534f), ephemeral=True)
+        if is_not_owner(interaction):
+            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Nur der **Server Owner** darf MM-Tickets claimen.", 0xd9534f), ephemeral=True)
 
         if interaction.channel.name == f"ticket-mm_{interaction.user.name.lower()}".replace(" ", "-"):
             return await interaction.response.send_message(embed=create_embed("❌ Error", "You cannot handle your own transaction session.", 0xd9534f), ephemeral=True)
@@ -174,8 +169,8 @@ class MiddlemanTicketView(discord.ui.View):
 
     @discord.ui.button(label="Close Session", style=discord.ButtonStyle.red, custom_id="btn_close_mm", emoji="🔒")
     async def close_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if is_interaction_restricted(interaction):
-            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Deine Rolle erlaubt es dir nicht, MM-Sessions zu schließen.", 0xd9534f), ephemeral=True)
+        if is_not_owner(interaction):
+            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Nur der **Server Owner** darf MM-Sessions schließen.", 0xd9534f), ephemeral=True)
 
         await interaction.response.send_message(create_embed("🔒 Closing", "Securing trade history transcripts... Channel will be deleted in 5 seconds."))
         await save_transcript(interaction.channel, "Middleman")
@@ -188,8 +183,8 @@ class MiddlemanPanel(discord.ui.View):
 
     @discord.ui.button(label="Request Middleman", style=discord.ButtonStyle.blurple, custom_id="btn_open_mm", emoji="💳")
     async def open_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if is_interaction_restricted(interaction):
-            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Deine Rolle erlaubt es dir nicht, Middleman-Anfragen zu erstellen.", 0xd9534f), ephemeral=True)
+        if is_not_owner(interaction):
+            return await interaction.response.send_message(embed=create_embed("🔒 Denied", "Nur der **Server Owner** darf Middleman-Anfragen erstellen.", 0xd9534f), ephemeral=True)
 
         await interaction.response.defer(ephemeral=True)
         name = f"ticket-mm_{interaction.user.name.lower()}".replace(" ", "-")
@@ -608,7 +603,7 @@ async def on_app_command_completion(interaction: discord.Interaction, command: a
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if "CheckFailure" in str(error):
         try:
-            await interaction.response.send_message(embed=create_embed("🔒 Denied", "Du darfst keine Commands benutzen, da du eine blockierte Rolle hast.", 0xd9534f), ephemeral=True)
+            await interaction.response.send_message(embed=create_embed("🔒 Denied", "Nur der **Server Owner** darf Commands benutzen.", 0xd9534f), ephemeral=True)
         except:
             pass
 
