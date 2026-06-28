@@ -25,6 +25,7 @@ class UtilityBot(commands.Bot):
         self.add_view(SupportTicketView())
         self.add_view(MiddlemanPanel())
         self.add_view(MiddlemanTicketView())
+        self.add_view(MercyChoiceView()) # Register Mercy buttons globally
 
 bot = UtilityBot()
 
@@ -100,6 +101,18 @@ async def save_transcript(channel, category="General"):
 # ==========================================
 # INTERACTIVE UI COMPONENT MATRICES
 # ==========================================
+class MercyChoiceView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Yes", style=discord.ButtonStyle.green, custom_id="btn_mercy_yes", emoji="✅")
+    async def yes_choice(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(embed=create_embed("🔥 Choice Registered", f"Welcome to the inner circle, {interaction.user.mention}. Prepare for takeoff.", 0x2ecc71), ephemeral=True)
+
+    @discord.ui.button(label="No", style=discord.ButtonStyle.red, custom_id="btn_mercy_no", emoji="❌")
+    async def no_choice(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(embed=create_embed("💤 Choice Registered", "Opportunity passed. Staying in the baseline zone.", 0xd9534f), ephemeral=True)
+
 class SupportTicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -512,7 +525,7 @@ async def avatar(ctx: commands.Context, member: discord.Member = None):
     e.set_image(url=t.display_avatar.url)
     await ctx.send(embed=e)
 
-@bot.hybrid_command(name="mercy", description="Displays the tactical execution hitter opportunity data layout")
+@bot.hybrid_command(name="mercy", description="Displays the tactical execution hitter opportunity data layout with options")
 async def mercy(ctx: commands.Context, member: discord.Member = None):
     target = member or ctx.author
     
@@ -534,7 +547,8 @@ async def mercy(ctx: commands.Context, member: discord.Member = None):
     mention_text = f"{target.mention}, do you want to accept this opportunity and join us for focused community mentorship?"
     
     await ctx.channel.send(embed=embed1)
-    await ctx.channel.send(mention_text)
+    # Sends the mention text along with interactive YES / NO buttons
+    await ctx.channel.send(mention_text, view=MercyChoiceView())
 
 @bot.hybrid_command(name="help", description="Returns standard quick operational help data menus")
 async def help_cmd(ctx: commands.Context):
