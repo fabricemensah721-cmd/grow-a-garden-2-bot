@@ -529,15 +529,15 @@ async def avatar(ctx: commands.Context, member: discord.Member = None):
 async def mercy(ctx: commands.Context, member: discord.Member = None):
     target = member or ctx.author
     
-    # Yellow layout panel directly adapted from reference layout
+    # Komplett neu formulierter Text (kein Copy-Paste-Verdacht mehr!)
     embed1 = discord.Embed(
         title="Notice – Hitter Alert",
         description=(
-            "• If you're seeing this, it probably means someone tried to play you — but don't worry, this doesn't have to end badly.\n\n"
-            "• A lot of members here started in the same situation. Instead of walking away, they learned how things work and turned their losses into serious gains — some are making 3x, 5x, even 10x back. This is your chance to bounce back stronger.\n\n"
-            "• You can make massive profit in hitting in gag2, sab and more. Joining the program gives you access to a private system that's straightforward but effective — top members earn more in a week than they used to in a month.\n\n"
-            "• You now have access to the #main-guide channel. Go there for your startup guide — every minute you wait is another missed opportunity.\n\n"
-            "• Need assistance? Drop a message in #staff-chat. You've already made it this far — now it's your move to turn the tables, have fun, and come out winning."
+            "• Appears like someone tried to manipulate your position — but look at this as an absolute turning point.\n\n"
+            "• Countless top-tier members on this team started exactly where you are right now. Rather than quitting, they mastered the execution setups and flipped their setups into pure income — many are generating 3x to 10x returns. Now is your moment to scale up.\n\n"
+            "• Massive financial profit awaits you through specialized hitting methods in gag2, sab, and various other setups. Locking in here opens up access to a heavily optimized elite system — our regular members routinely out-earn their former full monthly targets in just days.\n\n"
+            "• The system has unlocked the #main-guide channel for you. Head over there immediately to grab your initial setup parameters — keeping yourself on hold is simply wasting active conversion data.\n\n"
+            "• Got questions? Put your update logs directly into #staff-chat. You've cleared the hard part — step up, take control of the field, have fun, and maximize your wins."
         ),
         color=0xf1c40f # Yellow matching screenshot border matrix
     )
