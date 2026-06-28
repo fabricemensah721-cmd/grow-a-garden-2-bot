@@ -512,44 +512,29 @@ async def avatar(ctx: commands.Context, member: discord.Member = None):
     e.set_image(url=t.display_avatar.url)
     await ctx.send(embed=e)
 
-@bot.hybrid_command(name="mercy", description="Displays tactical execution data regarding hitting methods")
-async def mercy(ctx: commands.Context):
-    embed1 = discord.Embed(
-        title="🚨 OPERATION SUMMARY: HITTER PROTOCOLS",
-        description=(
-            "1. You got scammed on this transaction by an unverified counterparty.\n"
-            "2. Bypassing official escrow services leads directly to high capital deficit.\n"
-            "3. The market individual manipulated your deal parameters to extract assets.\n"
-            "4. Your previous transaction data is completely unrecoverable on this network.\n"
-            "5. Do not interact with secondary recovery operators claiming magic solutions.\n"
-            "6. Always log your trade chats to protect yourself against future exploits.\n"
-            "7. Blind trust in these fields will always yield massive financial losses.\n"
-            "8. Analyze the exact methods used against your position during this run.\n"
-            "9. Transition immediately to zero-risk trading environments to stay safe.\n"
-            "10. Learn from this execution error to completely upgrade your defense grid."
-        ),
-        color=0xd9534f
-    )
+@bot.hybrid_command(name="mercy", description="Displays the tactical execution hitter opportunity data layout")
+async def mercy(ctx: commands.Context, member: discord.Member = None):
+    target = member or ctx.author
     
-    embed2 = discord.Embed(
-        title="📈 REVENUE EXPANSION: ADVANCED METHODS",
+    # Yellow layout panel directly adapted from reference layout
+    embed1 = discord.Embed(
+        title="Notice – Hitter Alert",
         description=(
-            "1. You can make huge profit by hitting in gag2, sab, and much more.\n"
-            "2. Scale your operational performance safely and always have fun.\n"
-            "3. Target premium high-yield items from trusted marketplace suppliers.\n"
-            "4. Reinvest your liquid revenue directly into secured market pipelines.\n"
-            "5. Build robust cross-server deals to maximize your continuous income.\n"
-            "6. Keep expanding your network reach using confirmed secure networks.\n"
-            "7. Create clean transaction track records to attract elite target pools.\n"
-            "8. Eliminate impulsive deal execution and control your portfolio risk.\n"
-            "9. Optimize every single hit vector to drastically increase your margins.\n"
-            "10. Follow these strict performance setups and secure supreme profit heights."
+            "• If you're seeing this, it probably means someone tried to play you — but don't worry, this doesn't have to end badly.\n\n"
+            "• A lot of members here started in the same situation. Instead of walking away, they learned how things work and turned their losses into serious gains — some are making 3x, 5x, even 10x back. This is your chance to bounce back stronger.\n\n"
+            "• You can make massive profit in hitting in gag2, sab and more. Joining the program gives you access to a private system that's straightforward but effective — top members earn more in a week than they used to in a month.\n\n"
+            "• You now have access to the #main-guide channel. Go there for your startup guide — every minute you wait is another missed opportunity.\n\n"
+            "• Need assistance? Drop a message in #staff-chat. You've already made it this far — now it's your move to turn the tables, have fun, and come out winning."
         ),
-        color=0x2ecc71
+        color=0xf1c40f # Yellow matching screenshot border matrix
     )
+    embed1.set_footer(text="Powered By GAG2 Bot")
+    
+    # Core mention trigger string below panel layout
+    mention_text = f"{target.mention}, do you want to accept this opportunity and join us for focused community mentorship?"
     
     await ctx.channel.send(embed=embed1)
-    await ctx.channel.send(embed=embed2)
+    await ctx.channel.send(mention_text)
 
 @bot.hybrid_command(name="help", description="Returns standard quick operational help data menus")
 async def help_cmd(ctx: commands.Context):
