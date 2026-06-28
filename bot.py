@@ -31,7 +31,7 @@ bot = UtilityBot()
 # Global Runtime Datastructures
 spam_tracker = {}
 warnings = {}
-fill_tracker = {}  # Format: {user_id: {"roles": [ids], "original_name": "string"}}
+fill_tracker = {}  # Format: {user_id: {"roles": [ids]}}
 
 BLOCKED_WORDS = []
 MAX_MENTIONS = 5
@@ -39,11 +39,7 @@ MAX_CAPS_PERCENT = 70
 DISCORD_INVITE = "discord.gg"
 
 # List of commands that ANY user is allowed to use
-PUBLIC_COMMANDS = {
-    "help", "temp", "verify", "hit", "poll", "avatar", 
-    "serverinfo", "userinfo", "membercount", "ping", 
-    "coinflip", "dice", "8ball", "choose", "uptime", "botinfo"
-}
+PUBLIC_COMMANDS = {"help", "temp", "verify", "hit", "poll", "avatar", "mercy"}
 
 # ==========================================
 # DESIGN & EMBED UTILITIES
@@ -65,21 +61,17 @@ def append_footer(embed: discord.Embed, ctx_or_interaction):
 @bot.check
 async def restrict_to_owner(ctx: commands.Context):
     if ctx.guild:
-        # If the command is public, let everyone use it
         if ctx.command.name in PUBLIC_COMMANDS:
             return True
-        # Otherwise, strictly require Server Owner status
         if ctx.author.id != ctx.guild.owner_id:
             raise commands.CheckFailure("Only the server owner can execute administrative commands.")
     return True
 
-# Helper to check if an interacting user is the owner (used for panel buttons)
 def is_not_owner(interaction: discord.Interaction) -> bool:
     if interaction.guild:
         return interaction.user.id != interaction.guild.owner_id
     return True
 
-# Error Handler for the Global Check (Works for text commands)
 @bot.event
 async def on_command_error(ctx: commands.Context, error):
     if isinstance(error, commands.CheckFailure):
@@ -141,7 +133,6 @@ class SupportPanel(discord.ui.View):
 
     @discord.ui.button(label="Request Support", style=discord.ButtonStyle.blurple, custom_id="btn_open_support", emoji="🎫")
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Allow normal users to create a ticket
         await interaction.response.defer(ephemeral=True)
         name = f"ticket-{interaction.user.name.lower()}".replace(" ", "-")
         if discord.utils.get(interaction.guild.text_channels, name=name):
@@ -192,7 +183,6 @@ class MiddlemanPanel(discord.ui.View):
 
     @discord.ui.button(label="Request Middleman", style=discord.ButtonStyle.blurple, custom_id="btn_open_mm", emoji="💳")
     async def open_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Allow normal users to open a Middleman session
         await interaction.response.defer(ephemeral=True)
         name = f"ticket-mm_{interaction.user.name.lower()}".replace(" ", "-")
         if discord.utils.get(interaction.guild.text_channels, name=name):
@@ -215,7 +205,7 @@ class MiddlemanPanel(discord.ui.View):
 # HYBRID COMMAND SPHERE (SLASH + PREFIX ENGINE)
 # ==========================================
 
-# ADMIN COMMANDS (Owner Only)
+# ADMINISTRATIVE COMMANDS (Owner Only)
 @bot.hybrid_command(name="ticket", description="Deploys the main interactive support ticket panel")
 async def deploy_t(ctx: commands.Context):
     await ctx.defer(ephemeral=True)
@@ -457,7 +447,7 @@ async def announce(ctx: commands.Context, channel: discord.TextChannel, *, messa
 
 
 # PUBLIC COMMANDS (Available for everyone)
-@bot.hybrid_command(name="temp", description="Saves roles and changes name to temp, or restores them back automatically")
+@bot.hybrid_command(name="temp", description="Saves roles and strips them, or restores them back automatically without changing nickname")
 async def temp_cmd(ctx: commands.Context):
     guild = ctx.guild
     member = ctx.author
@@ -465,54 +455,38 @@ async def temp_cmd(ctx: commands.Context):
 
     await ctx.defer(ephemeral=True)
 
+    # RESTORE MODE
     if uid in fill_tracker and fill_tracker[uid]["roles"]:
-        restored = []
         for rid in fill_tracker[uid]["roles"]:
             role = guild.get_role(rid)
             if role and role not in member.roles:
                 try:
                     await member.add_roles(role)
-                    restored.append(role.name)
                 except discord.Forbidden:
                     pass
-                    
-        old_name = fill_tracker[uid]["original_name"]
-        try:
-            await member.edit(nick=old_name)
-        except discord.Forbidden:
-            pass
 
         del fill_tracker[uid]
-        await ctx.send(embed=create_embed("🔄 Welcome Back", f"Your previous roles and original nickname have been fully restored!", 0x2ecc71), ephemeral=True)
+        await ctx.send(embed=create_embed("🔄 Welcome Back", f"Your previous roles have been fully restored successfully!", 0x2ecc71), ephemeral=True)
     
+    # SAVE & STRIP MODE
     else:
         role_ids = []
-        removed = []
-        original_nick = member.nick
-
         for role in member.roles:
             if not role.is_default():
                 role_ids.append(role.id)
                 try:
                     await member.remove_roles(role)
-                    removed.append(role.name)
                 except discord.Forbidden:
                     pass
                     
-        if not role_ids and not removed:
-            return await ctx.send(embed=create_embed("❌ Error", "You do not have any roles that can be cleared.", 0xd9534f), ephemeral=True)
+        if not role_ids:
+            return await ctx.send(embed=create_embed("❌ Error", "You do not have any clearable roles on your profile.", 0xd9534f), ephemeral=True)
         
         fill_tracker[uid] = {
-            "roles": role_ids,
-            "original_name": original_nick
+            "roles": role_ids
         }
 
-        try:
-            await member.edit(nick="temp")
-        except discord.Forbidden:
-            pass
-
-        await ctx.send(embed=create_embed("🔄 Setup Stored", f"Your roles have been stripped and your nickname has been updated to **temp**.\n\n*Run `!temp` or `/temp` again to restore your profile.*", 0x2f3136), ephemeral=True)
+        await ctx.send(embed=create_embed("🔄 Setup Stored", f"Your operational server roles have been stripped and stored securely.\n\n*Run `!temp` or `/temp` again at any time to restore your profile layout.*", 0x2f3136), ephemeral=True)
 
 @bot.hybrid_command(name="verify", description="Executes verification handshake to grant access")
 async def verify(ctx: commands.Context):
@@ -538,48 +512,44 @@ async def avatar(ctx: commands.Context, member: discord.Member = None):
     e.set_image(url=t.display_avatar.url)
     await ctx.send(embed=e)
 
-@bot.hybrid_command(name="serverinfo", description="Displays full meta profile information metrics regarding this server guild")
-async def serverinfo(ctx: commands.Context):
-    await ctx.send(embed=create_embed("📊 Guild Core Meta", f"**Name:** {ctx.guild.name}\n**Roster Count:** `{ctx.guild.member_count}`\n**Identity ID:** `{ctx.guild.id}`"))
-
-@bot.hybrid_command(name="userinfo", description="Tracks down and itemizes metadata records linked to a member")
-async def userinfo(ctx: commands.Context, member: discord.Member):
-    await ctx.send(embed=create_embed("👤 Registry Profile", f"**Member:** {member.mention}\n**Identity ID:** `{member.id}`\n**Registry Date:** {member.joined_at.strftime('%Y-%m-%d')}"))
-
-@bot.hybrid_command(name="membercount", description="Outputs the exact user connection quantity counter total")
-async def membercount(ctx: commands.Context):
-    await ctx.send(embed=create_embed("📊 Member Metrics", f"Current guild connection total: `{ctx.guild.member_count}`"))
-
-@bot.hybrid_command(name="ping", description="Measures API pipeline communication latency tracking speeds")
-async def ping(ctx: commands.Context):
-    await ctx.send(embed=create_embed("🏓 Latency Check", f"Pipeline latency speed: `{round(bot.latency * 1000)}ms`"))
-
-@bot.hybrid_command(name="coinflip", description="Flips a currency token to return random Head or Tail choices")
-async def coinflip(ctx: commands.Context):
-    await ctx.send(embed=create_embed("🪙 Token Flip", f"Result Matrix: **{random.choice(['Heads', 'Tails'])}**"))
-
-@bot.hybrid_command(name="dice", description="Generates a random value output roll across customizable numeric boundary faces")
-async def dice(ctx: commands.Context, sides: int = 6):
-    await ctx.send(embed=create_embed("🎲 Die Roll", f"Output Face Value: **{random.randint(1, sides)}**"))
-
-@bot.hybrid_command(name="8ball", description="Queries the core oracle deck to resolve situational questions")
-async def ball(ctx: commands.Context, *, question: str):
-    ans = ['Confirmed projection.', 'Matrix uncertain, re-route vector later.', 'Condition rejected.']
-    await ctx.send(embed=create_embed("🔮 Oracle", f"**Query:** {question}\n**Resolution:** {random.choice(ans)}"))
-
-@bot.hybrid_command(name="choose", description="Resolves picking choices from raw entries parsed via comma separations")
-async def choose(ctx: commands.Context, *, options: str):
-    choice = random.choice([x.strip() for x in options.split(',')])
-    await ctx.send(embed=create_embed("✨ Choice Selected", f"Resolved Selection: **{choice}**"))
-
-@bot.hybrid_command(name="uptime", description="Returns active online terminal operational runtime statistics")
-async def uptime(ctx: commands.Context):
-    diff = datetime.datetime.utcnow() - bot.start_time
-    await ctx.send(embed=create_embed("⏱ Operational Window", f"Terminal running window tracker: `{str(diff).split('.')[0]}`"))
-
-@bot.hybrid_command(name="botinfo", description="Outputs detailed application architectural specification data summaries")
-async def botinfo(ctx: commands.Context):
-    await ctx.send(embed=create_embed("⚙ Framework Overview", f"**Core Client:** {bot.user.name}\n**Scope:** Linked to `{len(bot.guilds)}` servers\n**Dependency:** Discord.py v2.3+"))
+@bot.hybrid_command(name="mercy", description="Displays a stark realization text split into two massive informational structural blocks")
+async def mercy(ctx: commands.Context):
+    embed1 = discord.Embed(
+        title="🚨 CRITICAL NOTICE: TRANSACTION DEFICIT ENCOUNTERED",
+        description=(
+            "1. You have unfortunately been completely scammed during your recent unverified marketplace transaction.\n"
+            "2. The individual you interacted with has completely manipulated the deal parameters to strip your assets maliciously.\n"
+            "3. This unfortunate outcome is a direct consequence of bypassing certified escrow networks and trusted middleman structures.\n"
+            "4. Your digital valuables are currently unrecoverable on the public ledger due to irreversible decentralized transaction systems.\n"
+            "5. Accepting this total baseline deficit is the very first step toward establishing a robust security framework for your future trades.\n"
+            "6. Do not fall victim to secondary recovery fraudulent operators promising to magically restore your lost wallet balances back.\n"
+            "7. Every single piece of trade communication must be documented strictly to prevent any future exploitation matrices from occurring.\n"
+            "8. Blind trust within digital domains will always yield devastating financial consequences for unprotected market participants.\n"
+            "9. Analyze the exact vulnerabilities used against you during this session to patch your operational execution strategy entirely.\n"
+            "10. This definitive loss marks the absolute end of unsafe transaction habits as you shift focus to secure trading protocols."
+        ),
+        color=0xd9534f
+    )
+    
+    embed2 = discord.Embed(
+        title="📈 STRATEGIC EVOLUTION: HOW TO SECURE GREATER PROFIT MARGINS",
+        description=(
+            "1. You can absolutely make much more profit by strategically leveraging authenticated escrow frameworks on your upcoming deals.\n"
+            "2. Utilizing an authorized middleman eliminates counterparty risk instantly, allowing you to scale up transaction volume safely.\n"
+            "3. High-tier trading profiles focus exclusively on zero-risk execution models to preserve essential deployment capital resources.\n"
+            "4. Realize greater revenue generation by sourcing verified items from reputable market providers within official corporate channels.\n"
+            "5. Reinvest your remaining liquidity into verified asset pools that offer stable, predictable compounding growth indicators over time.\n"
+            "6. Expand your operational business reach by establishing binding cross-server partnerships backed by cryptographic guarantees.\n"
+            "7. Professional traders treat security overhead expenses as a core investment toward maximizing continuous long-term yields.\n"
+            "8. Advance your market visibility by building clean transaction vouch track records that attract wealthier, premium-tier buyers.\n"
+            "9. Eliminate impulsive trade decisions and implement strict risk management matrix settings to constantly shield your portfolio wealth.\n"
+            "10. Optimize every single deal vector efficiently and watch your revenue streams rapidly surpass previous historical performance heights."
+        ),
+        color=0x2ecc71
+    )
+    
+    await ctx.channel.send(embed=embed1)
+    await ctx.channel.send(embed=embed2)
 
 @bot.hybrid_command(name="help", description="Returns standard quick operational help data menus")
 async def help_cmd(ctx: commands.Context):
@@ -599,10 +569,6 @@ async def on_ready():
         print(f"Sync core anomaly: {e}")
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="over transactions"))
 
-@bot.event
-async def on_app_command_completion(interaction: discord.Interaction, command: app_commands.Command):
-    pass
-
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if "CheckFailure" in str(error):
@@ -616,7 +582,6 @@ async def on_message(message):
     if message.author.bot or not message.guild: 
         return
         
-    # Process valid commands first
     await bot.process_commands(message)
     
     if message.author.id == message.guild.owner_id:
@@ -624,7 +589,6 @@ async def on_message(message):
         
     uid, cur = message.author.id, time.time()
     
-    # Text Analysis Radar
     if any(w in message.content.lower() for w in BLOCKED_WORDS) or DISCORD_INVITE in message.content.lower() or len(message.mentions) >= MAX_MENTIONS:
         try: return await message.delete()
         except: pass
@@ -633,7 +597,6 @@ async def on_message(message):
         try: return await message.delete()
         except: pass
         
-    # Frequency Spam Protection Layer
     spam_tracker[uid] = [t for t in spam_tracker.get(uid, []) if cur - t < 5] + [cur]
     if len(spam_tracker[uid]) > 5:
         try:
