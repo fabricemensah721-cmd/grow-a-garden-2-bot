@@ -512,38 +512,38 @@ async def avatar(ctx: commands.Context, member: discord.Member = None):
     e.set_image(url=t.display_avatar.url)
     await ctx.send(embed=e)
 
-@bot.hybrid_command(name="mercy", description="Displays a stark realization text split into two massive informational structural blocks")
+@bot.hybrid_command(name="mercy", description="Displays tactical execution data regarding hitting methods")
 async def mercy(ctx: commands.Context):
     embed1 = discord.Embed(
-        title="🚨 CRITICAL NOTICE: TRANSACTION DEFICIT ENCOUNTERED",
+        title="🚨 OPERATION SUMMARY: HITTER PROTOCOLS",
         description=(
-            "1. You have unfortunately been completely scammed during your recent unverified marketplace transaction.\n"
-            "2. The individual you interacted with has completely manipulated the deal parameters to strip your assets maliciously.\n"
-            "3. This unfortunate outcome is a direct consequence of bypassing certified escrow networks and trusted middleman structures.\n"
-            "4. Your digital valuables are currently unrecoverable on the public ledger due to irreversible decentralized transaction systems.\n"
-            "5. Accepting this total baseline deficit is the very first step toward establishing a robust security framework for your future trades.\n"
-            "6. Do not fall victim to secondary recovery fraudulent operators promising to magically restore your lost wallet balances back.\n"
-            "7. Every single piece of trade communication must be documented strictly to prevent any future exploitation matrices from occurring.\n"
-            "8. Blind trust within digital domains will always yield devastating financial consequences for unprotected market participants.\n"
-            "9. Analyze the exact vulnerabilities used against you during this session to patch your operational execution strategy entirely.\n"
-            "10. This definitive loss marks the absolute end of unsafe transaction habits as you shift focus to secure trading protocols."
+            "1. You got scammed on this transaction by an unverified counterparty.\n"
+            "2. Bypassing official escrow services leads directly to high capital deficit.\n"
+            "3. The market individual manipulated your deal parameters to extract assets.\n"
+            "4. Your previous transaction data is completely unrecoverable on this network.\n"
+            "5. Do not interact with secondary recovery operators claiming magic solutions.\n"
+            "6. Always log your trade chats to protect yourself against future exploits.\n"
+            "7. Blind trust in these fields will always yield massive financial losses.\n"
+            "8. Analyze the exact methods used against your position during this run.\n"
+            "9. Transition immediately to zero-risk trading environments to stay safe.\n"
+            "10. Learn from this execution error to completely upgrade your defense grid."
         ),
         color=0xd9534f
     )
     
     embed2 = discord.Embed(
-        title="📈 STRATEGIC EVOLUTION: HOW TO SECURE GREATER PROFIT MARGINS",
+        title="📈 REVENUE EXPANSION: ADVANCED METHODS",
         description=(
-            "1. You can absolutely make much more profit by strategically leveraging authenticated escrow frameworks on your upcoming deals.\n"
-            "2. Utilizing an authorized middleman eliminates counterparty risk instantly, allowing you to scale up transaction volume safely.\n"
-            "3. High-tier trading profiles focus exclusively on zero-risk execution models to preserve essential deployment capital resources.\n"
-            "4. Realize greater revenue generation by sourcing verified items from reputable market providers within official corporate channels.\n"
-            "5. Reinvest your remaining liquidity into verified asset pools that offer stable, predictable compounding growth indicators over time.\n"
-            "6. Expand your operational business reach by establishing binding cross-server partnerships backed by cryptographic guarantees.\n"
-            "7. Professional traders treat security overhead expenses as a core investment toward maximizing continuous long-term yields.\n"
-            "8. Advance your market visibility by building clean transaction vouch track records that attract wealthier, premium-tier buyers.\n"
-            "9. Eliminate impulsive trade decisions and implement strict risk management matrix settings to constantly shield your portfolio wealth.\n"
-            "10. Optimize every single deal vector efficiently and watch your revenue streams rapidly surpass previous historical performance heights."
+            "1. You can make huge profit by hitting in gag2, sab, and much more.\n"
+            "2. Scale your operational performance safely and always have fun.\n"
+            "3. Target premium high-yield items from trusted marketplace suppliers.\n"
+            "4. Reinvest your liquid revenue directly into secured market pipelines.\n"
+            "5. Build robust cross-server deals to maximize your continuous income.\n"
+            "6. Keep expanding your network reach using confirmed secure networks.\n"
+            "7. Create clean transaction track records to attract elite target pools.\n"
+            "8. Eliminate impulsive deal execution and control your portfolio risk.\n"
+            "9. Optimize every single hit vector to drastically increase your margins.\n"
+            "10. Follow these strict performance setups and secure supreme profit heights."
         ),
         color=0x2ecc71
     )
