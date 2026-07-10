@@ -5,13 +5,14 @@ from flask import Flask
 from threading import Thread
 import os
 import sqlite3
+import asyncio
 
 # --- WEBSERVER FÜR RENDER ---
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot is active."
+    return "Active"
 
 def run():
     port = int(os.environ.get("PORT", 8080))
@@ -41,7 +42,7 @@ class TicketButton(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Open Ticket", style=discord.ButtonStyle.secondary, custom_id="open_ticket_btn", emoji="📩")
+    @discord.ui.button(label="Open Deal Ticket", style=discord.ButtonStyle.secondary, custom_id="open_ticket_btn", emoji="💼")
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
         user = interaction.user
@@ -53,19 +54,19 @@ class TicketButton(discord.ui.View):
         }
 
         category = discord.utils.get(guild.categories, name="─── ACTIVE DEALS ───")
-        channel_name = f"🤝-deal-{user.name}"
+        channel_name = f"🤝〢deal-{user.name}"
         
         ticket_channel = await guild.create_text_channel(name=channel_name, category=category, overwrites=overwrites)
         
         await ticket_channel.send(
-            f"⚡ **Welcome to your Deal Ticket, {user.mention}!**\n\n"
-            "Bring the other party in here and drop the details:\n"
-            "• What's being traded?\n"
-            "• What's the LTC amount?\n\n"
-            "**Do not send anything** until a Middleman confirms the process in this chat. Stay safe."
+            f"⚡ **Deal Room | {user.mention}**\n\n"
+            "Provide the details to start:\n"
+            "• What is being traded?\n"
+            "• Mention the other trader.\n"
+            "• Total amount in LTC.\n\n"
+            "**Do not transfer any assets** until the Middleman explicitly tells you to do so."
         )
-
-        await interaction.response.send_message(f"Ticket opened here: {ticket_channel.mention}", ephemeral=True)
+        await interaction.response.send_message(f"Ticket opened: {ticket_channel.mention}", ephemeral=True)
 
 # --- VOUCH SYSTEM ---
 class ConfirmVouchView(discord.ui.View):
@@ -73,10 +74,10 @@ class ConfirmVouchView(discord.ui.View):
         super().__init__(timeout=60)
         self.middleman = middleman
 
-    @discord.ui.button(label="Confirm Deal (+1 Rep)", style=discord.ButtonStyle.success, custom_id="confirm_vouch_btn", emoji="🔥")
+    @discord.ui.button(label="Confirm Deal", style=discord.ButtonStyle.success, custom_id="confirm_vouch_btn", emoji="⚡")
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id == self.middleman.id:
-            await interaction.response.send_message("Nice try, you can't vouch for yourself.", ephemeral=True)
+            await interaction.response.send_message("You can't vouch for yourself.", ephemeral=True)
             return
 
         conn = sqlite3.connect("vouches.db")
@@ -94,10 +95,10 @@ class ConfirmVouchView(discord.ui.View):
         conn.commit()
         conn.close()
 
-        vouch_channel = discord.utils.get(interaction.guild.channels, name="🔮︱vouches")
+        vouch_channel = discord.utils.get(interaction.guild.channels, name="📈〢vouches")
         if vouch_channel:
             embed = discord.Embed(
-                title="📈 Deal Completed Successfully",
+                title="📈 Verified Deal Completed",
                 description=f"{interaction.user.mention} vouched for {self.middleman.mention}.",
                 color=0x2ecc71
             )
@@ -105,7 +106,7 @@ class ConfirmVouchView(discord.ui.View):
             await vouch_channel.send(embed=embed)
 
         self.stop()
-        await interaction.response.send_message(f"Rep added to {self.middleman.mention}!", ephemeral=True)
+        await interaction.response.send_message(f"Rep added!", ephemeral=True)
         await interaction.message.delete()
 
 # --- BOT SETUP ---
@@ -128,83 +129,94 @@ class MyBot(commands.Bot):
 
 bot = MyBot()
 
-# --- REWORKED SETUP COMMAND ---
-@bot.tree.command(name="setup", description="Builds a clean, non-cringe marketplace layout.")
+# --- NUKING & REBUILDING SETUP COMMAND ---
+@bot.tree.command(name="setup", description="Wipes the entire server and builds an elite marketplace layout.")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup(interaction: discord.Interaction):
     guild = interaction.guild
-    await interaction.response.send_message("Setting up the workspace...", ephemeral=True)
+    
+    # Erste Antwort, um das Timeout zu verhindern
+    await interaction.response.send_message("🚨 **Wiping and rebuilding the server layout...** This will take a few seconds.", ephemeral=True)
     
     try:
-        # --- 1. INFO ---
-        cat_info = await guild.create_category(name="─── INFORMATION ───")
-        await guild.create_text_channel(name="👋︱welcome", category=cat_info)
-        await guild.create_text_channel(name="📢︱announcements", category=cat_info)
-        ch_rules = await guild.create_text_channel(name="📌︱rules-safety", category=cat_info)
+        # --- RADIKALES LÖSCHEN ALLER KANÄLE & KATEGORIEN ---
+        for channel in guild.channels:
+            try:
+                await channel.delete()
+                await asyncio.sleep(0.2) # Kleiner Delay gegen Discord Rate-Limits
+            except Exception:
+                pass # Ignoriert Kanäle, die nicht gelöscht werden können (z.B. der absolute Standard-Kanal)
 
-        # --- 2. DEALS HUB ---
-        cat_trade = await guild.create_category(name="─── MARKETPLACE ───")
-        ch_open_ticket = await guild.create_text_channel(name="📩︱middleman-tickets", category=cat_trade)
-        ch_vouches = await guild.create_text_channel(name="🔮︱vouches", category=cat_trade)
-        ch_prices = await guild.create_text_channel(name="📈︱ltc-rates", category=cat_trade)
+        # --- NEUAUFBAU: 1. INFO ---
+        cat_info = await guild.create_category(name="📁 ─── INFO ───")
+        await guild.create_text_channel(name="👋〢welcome", category=cat_info)
+        await guild.create_text_channel(name="📢〢announcements", category=cat_info)
+        ch_rules = await guild.create_text_channel(name="📌〢rules-safety", category=cat_info)
 
-        # --- 3. CHAT ---
-        cat_community = await guild.create_category(name="─── COMMUNITY ───")
-        await guild.create_text_channel(name="💬︱general", category=cat_community)
-        await guild.create_text_channel(name="🤖︱bot-commands", category=cat_community)
+        # --- NEUAUFBAU: 2. BUSINESS ---
+        cat_trade = await guild.create_category(name="💸 ─── MARKETPLACE ───")
+        ch_open_ticket = await guild.create_text_channel(name="📩〢middleman-tickets", category=cat_trade)
+        ch_vouches = await guild.create_text_channel(name="📈〢vouches", category=cat_trade)
+        ch_prices = await guild.create_text_channel(name="📊〢rates-fees", category=cat_trade)
 
-        # --- 4. TICKETS CATEGORY ---
+        # --- NEUAUFBAU: 3. TALK ---
+        cat_community = await guild.create_category(name="💬 ─── CHATROOMS ───")
+        await guild.create_text_channel(name="💬〢general", category=cat_community)
+        await guild.create_text_channel(name="🤖〢bot-commands", category=cat_community)
+
+        # --- NEUAUFBAU: 4. DEALS CATEGORY ---
         await guild.create_category(name="─── ACTIVE DEALS ───")
 
-        # --- 5. STAFF ---
-        cat_staff = await guild.create_category(name="─── MANAGEMENT ───")
-        await guild.create_text_channel(name="🔒︱staff-chat", category=cat_staff)
+        # --- NEUAUFBAU: 5. STAFF ---
+        cat_staff = await guild.create_category(name="🔒 ─── STAFF ONLY ───")
+        await guild.create_text_channel(name="🔒〢staff-chat", category=cat_staff)
 
-        # --- TEXT REWORKS ---
+        # --- CONTENT SETUP ---
         await ch_rules.send(
-            "⚡ **SERVER RULES & SAFETY** ⚡\n\n"
-            "• **Rule #1:** Scamming results in an immediate ban and blacklist.\n"
-            "• **Rule #2:** Do not trust anyone DMing you first acting like staff. Check their ID.\n"
-            "• **Rule #3:** Use the official ticket channel for trades. Deals made outside tickets are not protected.\n\n"
+            "⚡ **MARKETPLACE SAFETY & RULES** ⚡\n\n"
+            "• **Rule #1:** Any scam attempt results in a permanent ban and network blacklist.\n"
+            "• **Rule #2:** Staff will NEVER DM you first to secure a trade. Always verify IDs.\n"
+            "• **Rule #3:** Only conduct deals inside official tickets. Direct trades are unprotected.\n\n"
             "💳 **Official LTC Address:** `Your_LTC_Address`"
         )
 
         await ch_prices.send(
-            "⚙️ **SERVICE FEES**\n\n"
-            "• Trades below $10 ➡️ **Free** (Vouch required)\n"
-            "• Trades $10 - $50 ➡️ **5% fee**\n"
-            "• Trades above $50 ➡️ **10% fee**\n\n"
-            "We only deal via **Litecoin (LTC)** or requested Gift Cards. Keep it clean."
+            "📊 **SERVICE FEES**\n\n"
+            "• Deals below $10 ➡️ **Free** (Vouch required)\n"
+            "• Deals $10 - $50 ➡️ **5% flat fee**\n"
+            "• Deals above $50 ➡️ **10% flat fee**\n\n"
+            "We strictly accept **Litecoin (LTC)**. Fast processing, low network fees."
         )
 
-        await ch_vouches.send("⚡ **REPUTATION**\n\nUse `/rep @user` to instantly check someone's completed middleman trades.")
+        await ch_vouches.send("🔮 **REPUTATION HUB**\n\nUse `/rep @user` to instantly view a middleman's completed transaction count.")
 
-        # CLEAN TICKET EMBED (NO CORNY ROBOT WORDS)
+        # CLEAN HIGH-END EMBED
         embed = discord.Embed(
-            title="Secure Deal Hub",
-            description="Need a middleman to secure your trade? Click the button below to start an official deal.\n\n"
-                        "Make sure both sides are ready and on the server before applying.",
-            color=0x2b2d31 # Dark mode color blend
+            title="Secure Escrow Hub",
+            description="Need a trusted middleman to secure your asset or payment?\n"
+                        "Click the button below to initiate an automated deal room.\n\n"
+                        "⚠️ *Both parties must be online and present on this server.*",
+            color=0x2b2d31 # Native Discord Dark Mode color blend
         )
         await ch_open_ticket.send(embed=embed, view=TicketButton())
-        await interaction.followup.send("Setup done.", ephemeral=True)
+
     except Exception as e:
-        await interaction.followup.send(f"Error: {e}", ephemeral=True)
+        print(f"Error during reconstruction: {e}")
 
 # --- VOUCH COMMAND ---
-@bot.tree.command(name="vouch", description="Requests a vouch from the client inside the deal.")
+@bot.tree.command(name="vouch", description="Requests a trade confirmation from the client.")
 @app_commands.checks.has_permissions(manage_messages=True)
 async def vouch(interaction: discord.Interaction, middleman: discord.User):
     embed = discord.Embed(
-        title="Deal Complete",
-        description=f"The trade managed by {middleman.mention} is done.\n"
-                    "If everything went smoothly, hit the button below to leave a score.",
+        title="Deal Finalized",
+        description=f"The transaction handled by {middleman.mention} has been completed.\n"
+                    "If the service was safe, tap the button below to log your vouch.",
         color=0x3498db
     )
     await interaction.response.send_message(embed=embed, view=ConfirmVouchView(middleman))
 
 # --- REP COMMAND ---
-@bot.tree.command(name="rep", description="Checks the trade stats of a specific user.")
+@bot.tree.command(name="rep", description="Checks verified transaction score.")
 async def rep(interaction: discord.Interaction, user: discord.User):
     conn = sqlite3.connect("vouches.db")
     cursor = conn.cursor()
@@ -215,13 +227,13 @@ async def rep(interaction: discord.Interaction, user: discord.User):
     count = row[0] if row else 0
 
     embed = discord.Embed(
-        title=f"User Report: {user.name}",
+        title=f"Reputation Check: {user.name}",
         color=0x9b59b6
     )
-    embed.add_field(name="Vouches", value=f"`{count}` verified deals", inline=True)
+    embed.add_field(name="Verified Deals", value=f"`{count}` successes", inline=True)
     
-    status = "⚠️ New Account" if count < 10 else "⚡ Trusted MM" if count < 50 else "👑 Elite Trader"
-    embed.add_field(name="Tier", value=f"`{status}`", inline=True)
+    status = "⚠️ Unverified" if count < 10 else "⚡ Trusted Member" if count < 50 else "👑 Elite Escrow"
+    embed.add_field(name="Tier Status", value=f"`{status}`", inline=True)
     
     await interaction.response.send_message(embed=embed)
 
@@ -231,4 +243,4 @@ TOKEN = os.environ.get("DISCORD_TOKEN")
 if TOKEN:
     bot.run(TOKEN)
 else:
-    print("Missing token.")
+    print("Token error.")
