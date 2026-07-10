@@ -47,11 +47,19 @@ class TicketButton(discord.ui.View):
         guild = interaction.guild
         user = interaction.user
 
+        staff_role = discord.utils.get(guild.roles, name="🛡️ Staff")
+        owner_role = discord.utils.get(guild.roles, name="👑 Owner")
+
+        # Ticket-Rechte: Nur der User, Owner, Staff und der Bot selbst dürfen rein
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
             guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
+        if staff_role:
+            overwrites[staff_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        if owner_role:
+            overwrites[owner_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
         category = discord.utils.get(guild.categories, name="─── ACTIVE DEALS ───")
         channel_name = f"🤝〢deal-{user.name}"
@@ -130,54 +138,82 @@ class MyBot(commands.Bot):
 bot = MyBot()
 
 # --- NUKING & REBUILDING SETUP COMMAND ---
-@bot.tree.command(name="setup", description="Wipes the entire server and builds an elite marketplace layout.")
+@bot.tree.command(name="setup", description="Wipes everything, creates elite layout, roles & safe permissions.")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup(interaction: discord.Interaction):
     guild = interaction.guild
-    
-    # Erste Antwort, um das Timeout zu verhindern
-    await interaction.response.send_message("🚨 **Wiping and rebuilding the server layout...** This will take a few seconds.", ephemeral=True)
+    await interaction.response.send_message("🚨 **Wiping and rebuilding server layout & roles...** Please wait.", ephemeral=True)
     
     try:
-        # --- RADIKALES LÖSCHEN ALLER KANÄLE & KATEGORIEN ---
+        # --- 1. KANÄLE LÖSCHEN ---
         for channel in guild.channels:
             try:
                 await channel.delete()
-                await asyncio.sleep(0.2) # Kleiner Delay gegen Discord Rate-Limits
+                await asyncio.sleep(0.1)
             except Exception:
-                pass # Ignoriert Kanäle, die nicht gelöscht werden können (z.B. der absolute Standard-Kanal)
+                pass
 
-        # --- NEUAUFBAU: 1. INFO ---
+        # --- 2. ROLLEN ERSTELLEN / HOLEN ---
+        # Sucht ob die Rollen existieren, wenn nicht erstellen wir sie mit Farben
+        owner_role = discord.utils.get(guild.roles, name="👑 Owner") or await guild.create_role(name="👑 Owner", color=discord.Color.red(), hoist=True)
+        staff_role = discord.utils.get(guild.roles, name="🛡️ Staff") or await guild.create_role(name="🛡️ Staff", color=discord.Color.blue(), hoist=True)
+        member_role = discord.utils.get(guild.roles, name="👤 Member") or await guild.create_role(name="👤 Member", color=discord.Color.light_gray(), hoist=True)
+
+        # Dem Ausführer des Befehls direkt die Owner-Rolle geben
+        await interaction.user.add_roles(owner_role)
+
+        # --- PERMISSION OVERWRITES DEFINIEREN ---
+        # Jeder darf lesen, niemand darf schreiben (für Ankündigungen/Infos)
+        read_only_perms = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=True, send_messages=False),
+            staff_role: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            owner_role: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        }
+
+        # Komplett privat (nur für Team)
+        staff_only_perms = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            staff_role: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            owner_role: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        }
+
+        # Normale Chatrooms (jeder darf schreiben)
+        public_chat_perms = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        }
+
+        # --- 3. NEUAUFBAU DER KANÄLE ---
+        # INFO KATEGORIE
         cat_info = await guild.create_category(name="📁 ─── INFO ───")
-        await guild.create_text_channel(name="👋〢welcome", category=cat_info)
-        await guild.create_text_channel(name="📢〢announcements", category=cat_info)
-        ch_rules = await guild.create_text_channel(name="📌〢rules-safety", category=cat_info)
+        await guild.create_text_channel(name="👋〢welcome", category=cat_info, overwrites=read_only_perms)
+        await guild.create_text_channel(name="📢〢announcements", category=cat_info, overwrites=read_only_perms)
+        ch_rules = await guild.create_text_channel(name="📌〢rules-safety", category=cat_info, overwrites=read_only_perms)
 
-        # --- NEUAUFBAU: 2. BUSINESS ---
+        # BUSINESS KATEGORIE
         cat_trade = await guild.create_category(name="💸 ─── MARKETPLACE ───")
-        ch_open_ticket = await guild.create_text_channel(name="📩〢middleman-tickets", category=cat_trade)
-        ch_vouches = await guild.create_text_channel(name="📈〢vouches", category=cat_trade)
-        ch_prices = await guild.create_text_channel(name="📊〢rates-fees", category=cat_trade)
+        ch_open_ticket = await guild.create_text_channel(name="📩〢middleman-tickets", category=cat_trade, overwrites=read_only_perms)
+        ch_vouches = await guild.create_text_channel(name="📈〢vouches", category=cat_trade, overwrites=read_only_perms)
+        ch_prices = await guild.create_text_channel(name="📊〢rates-fees", category=cat_trade, overwrites=read_only_perms)
 
-        # --- NEUAUFBAU: 3. TALK ---
+        # CHAT KATEGORIE
         cat_community = await guild.create_category(name="💬 ─── CHATROOMS ───")
-        await guild.create_text_channel(name="💬〢general", category=cat_community)
-        await guild.create_text_channel(name="🤖〢bot-commands", category=cat_community)
+        await guild.create_text_channel(name="💬〢general", category=cat_community, overwrites=public_chat_perms)
+        await guild.create_text_channel(name="🤖〢bot-commands", category=cat_community, overwrites=public_chat_perms)
 
-        # --- NEUAUFBAU: 4. DEALS CATEGORY ---
+        # TICKETS KATEGORIE
         await guild.create_category(name="─── ACTIVE DEALS ───")
 
-        # --- NEUAUFBAU: 5. STAFF ---
+        # STAFF KATEGORIE
         cat_staff = await guild.create_category(name="🔒 ─── STAFF ONLY ───")
-        await guild.create_text_channel(name="🔒〢staff-chat", category=cat_staff)
+        await guild.create_text_channel(name="🔒〢staff-chat", category=cat_staff, overwrites=staff_only_perms)
 
-        # --- CONTENT SETUP ---
+        # --- TEXT SETUP MIT DEINER KOPIERTEN LTC ADRESSE ---
         await ch_rules.send(
             "⚡ **MARKETPLACE SAFETY & RULES** ⚡\n\n"
             "• **Rule #1:** Any scam attempt results in a permanent ban and network blacklist.\n"
             "• **Rule #2:** Staff will NEVER DM you first to secure a trade. Always verify IDs.\n"
             "• **Rule #3:** Only conduct deals inside official tickets. Direct trades are unprotected.\n\n"
-            "💳 **Official LTC Address:** `Your_LTC_Address`"
+            f"💳 **Official LTC Address:** `ltc1qmh0cyasdnk80svv5wf0fau993kppagtydud6dx`"
         )
 
         await ch_prices.send(
@@ -196,7 +232,7 @@ async def setup(interaction: discord.Interaction):
             description="Need a trusted middleman to secure your asset or payment?\n"
                         "Click the button below to initiate an automated deal room.\n\n"
                         "⚠️ *Both parties must be online and present on this server.*",
-            color=0x2b2d31 # Native Discord Dark Mode color blend
+            color=0x2b2d31
         )
         await ch_open_ticket.send(embed=embed, view=TicketButton())
 
