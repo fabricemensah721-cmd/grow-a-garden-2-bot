@@ -37,7 +37,7 @@ def init_db():
 
 init_db()
 
-# --- TICKET SYSTEM ---
+# --- TICKET SYSTEM (INTERACTION) ---
 class TicketButton(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -50,7 +50,6 @@ class TicketButton(discord.ui.View):
         staff_role = discord.utils.get(guild.roles, name="🛡️ Staff")
         owner_role = discord.utils.get(guild.roles, name="👑 Owner")
 
-        # Ticket-Rechte: Nur der User, Owner, Staff und der Bot selbst dürfen rein
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -145,7 +144,6 @@ async def setup(interaction: discord.Interaction):
     await interaction.response.send_message("🚨 **Wiping and rebuilding server layout & roles...** Please wait.", ephemeral=True)
     
     try:
-        # --- 1. KANÄLE LÖSCHEN ---
         for channel in guild.channels:
             try:
                 await channel.delete()
@@ -153,61 +151,47 @@ async def setup(interaction: discord.Interaction):
             except Exception:
                 pass
 
-        # --- 2. ROLLEN ERSTELLEN / HOLEN ---
-        # Sucht ob die Rollen existieren, wenn nicht erstellen wir sie mit Farben
         owner_role = discord.utils.get(guild.roles, name="👑 Owner") or await guild.create_role(name="👑 Owner", color=discord.Color.red(), hoist=True)
         staff_role = discord.utils.get(guild.roles, name="🛡️ Staff") or await guild.create_role(name="🛡️ Staff", color=discord.Color.blue(), hoist=True)
         member_role = discord.utils.get(guild.roles, name="👤 Member") or await guild.create_role(name="👤 Member", color=discord.Color.light_gray(), hoist=True)
 
-        # Dem Ausführer des Befehls direkt die Owner-Rolle geben
         await interaction.user.add_roles(owner_role)
 
-        # --- PERMISSION OVERWRITES DEFINIEREN ---
-        # Jeder darf lesen, niemand darf schreiben (für Ankündigungen/Infos)
         read_only_perms = {
             guild.default_role: discord.PermissionOverwrite(read_messages=True, send_messages=False),
             staff_role: discord.PermissionOverwrite(read_messages=True, send_messages=True),
             owner_role: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
 
-        # Komplett privat (nur für Team)
         staff_only_perms = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             staff_role: discord.PermissionOverwrite(read_messages=True, send_messages=True),
             owner_role: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
 
-        # Normale Chatrooms (jeder darf schreiben)
         public_chat_perms = {
             guild.default_role: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
 
-        # --- 3. NEUAUFBAU DER KANÄLE ---
-        # INFO KATEGORIE
         cat_info = await guild.create_category(name="📁 ─── INFO ───")
         await guild.create_text_channel(name="👋〢welcome", category=cat_info, overwrites=read_only_perms)
         await guild.create_text_channel(name="📢〢announcements", category=cat_info, overwrites=read_only_perms)
         ch_rules = await guild.create_text_channel(name="📌〢rules-safety", category=cat_info, overwrites=read_only_perms)
 
-        # BUSINESS KATEGORIE
         cat_trade = await guild.create_category(name="💸 ─── MARKETPLACE ───")
         ch_open_ticket = await guild.create_text_channel(name="📩〢middleman-tickets", category=cat_trade, overwrites=read_only_perms)
         ch_vouches = await guild.create_text_channel(name="📈〢vouches", category=cat_trade, overwrites=read_only_perms)
         ch_prices = await guild.create_text_channel(name="📊〢rates-fees", category=cat_trade, overwrites=read_only_perms)
 
-        # CHAT KATEGORIE
         cat_community = await guild.create_category(name="💬 ─── CHATROOMS ───")
         await guild.create_text_channel(name="💬〢general", category=cat_community, overwrites=public_chat_perms)
         await guild.create_text_channel(name="🤖〢bot-commands", category=cat_community, overwrites=public_chat_perms)
 
-        # TICKETS KATEGORIE
         await guild.create_category(name="─── ACTIVE DEALS ───")
 
-        # STAFF KATEGORIE
         cat_staff = await guild.create_category(name="🔒 ─── STAFF ONLY ───")
         await guild.create_text_channel(name="🔒〢staff-chat", category=cat_staff, overwrites=staff_only_perms)
 
-        # --- TEXT SETUP MIT DEINER KOPIERTEN LTC ADRESSE ---
         await ch_rules.send(
             "⚡ **MARKETPLACE SAFETY & RULES** ⚡\n\n"
             "• **Rule #1:** Any scam attempt results in a permanent ban and network blacklist.\n"
@@ -226,7 +210,7 @@ async def setup(interaction: discord.Interaction):
 
         await ch_vouches.send("🔮 **REPUTATION HUB**\n\nUse `/rep @user` to instantly view a middleman's completed transaction count.")
 
-        # CLEAN HIGH-END EMBED
+        # Postet das Ticket-System direkt beim Setup in den passenden Kanal
         embed = discord.Embed(
             title="Secure Escrow Hub",
             description="Need a trusted middleman to secure your asset or payment?\n"
@@ -238,6 +222,21 @@ async def setup(interaction: discord.Interaction):
 
     except Exception as e:
         print(f"Error during reconstruction: {e}")
+
+# --- NEUER SEPARATER COMMAND FÜR DAS TICKET-BED ---
+@bot.tree.command(name="middlemanticket", description="Posts the secure escrow ticket system panel into the current channel.")
+@app_commands.checks.has_permissions(manage_channels=True)
+async def middlemanticket(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="Secure Escrow Hub",
+        description="Need a trusted middleman to secure your asset or payment?\n"
+                    "Click the button below to initiate an automated deal room.\n\n"
+                    "⚠️ *Both parties must be online and present on this server.*",
+        color=0x2b2d31
+    )
+    # Postet das Panel genau in den Kanal, in dem du dich gerade befindest
+    await interaction.channel.send(embed=embed, view=TicketButton())
+    await interaction.response.send_message("Ticket panel spawned successfully.", ephemeral=True)
 
 # --- VOUCH COMMAND ---
 @bot.tree.command(name="vouch", description="Requests a trade confirmation from the client.")
