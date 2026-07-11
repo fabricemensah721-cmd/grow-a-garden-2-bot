@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 import sqlite3
 import os
+import asyncio
 
 # --- BOT SETUP ---
 intents = discord.Intents.default()
@@ -14,7 +15,6 @@ class MyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
         
     async def setup_hook(self):
-        # Initialize SQLite Database
         conn = sqlite3.connect("database.db")
         cursor = conn.cursor()
         cursor.execute("""
@@ -33,14 +33,13 @@ bot = MyBot()
 async def on_ready():
     print(f"Logged in as {bot.user.name}")
     try:
-        # Sync slash commands globally
         synced = await bot.tree.sync()
         print(f"Successfully synced {len(synced)} slash commands.")
     except Exception as e:
         print(f"Error syncing commands: {e}")
 
 
-# --- 1. SETUP COMMAND ---
+# --- 1. SETUP COMMAND (UPDATED) ---
 @bot.tree.command(name="setup", description="Creates the default channels for the marketplace")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup(interaction: discord.Interaction):
@@ -56,10 +55,12 @@ async def setup(interaction: discord.Interaction):
             cat = await guild.create_category(cat_name)
         cat_objects[cat_name] = cat
 
+    # Added the new channel here
     channels = [
         ("📢〢announcements", "INFO"),
         ("📈〢vouches", "INFO"),
-        ("📩〢tickets", "MARKET")
+        ("📩〢tickets", "MARKET"),
+        ("⚙️〢server-setup", "MARKET")
     ]
     
     for ch_name, cat_group in channels:
@@ -67,20 +68,19 @@ async def setup(interaction: discord.Interaction):
         if not existing:
             await guild.create_text_channel(ch_name, category=cat_objects[cat_group])
             
-    await interaction.followup.send("Server channels have been successfully set up!", ephemeral=True)
+    await interaction.followup.send("Server channels (including server-setup) have been successfully set up!", ephemeral=True)
 
 
 # --- 2. TICKET SYSTEM ---
 class TicketButtonView(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=None) # Buttons never expire
+        super().__init__(timeout=None)
 
     @discord.ui.button(label="Open Ticket", style=discord.ButtonStyle.green, custom_id="open_ticket_btn")
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
         member = interaction.user
         
-        # Set permissions for the new ticket channel
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             member: discord.PermissionOverwrite(read_messages=True, send_messages=True, attach_files=True),
@@ -115,7 +115,6 @@ class TicketCloseView(discord.ui.View):
     @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.red, custom_id="close_ticket_btn")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message("This ticket will be deleted in 5 seconds...")
-        import asyncio
         await asyncio.sleep(5)
         await interaction.channel.delete()
 
@@ -130,16 +129,14 @@ async def ticket_panel(interaction: discord.Interaction):
     )
     
     try:
-        # Send the panel directly into the channel first
         await interaction.channel.send(embed=embed, view=view)
-        # Inform the admin that it worked
         await interaction.response.send_message("Panel successfully sent!", ephemeral=True)
     except discord.Forbidden:
-        await interaction.response.send_message("Error: The bot does not have permissions to send messages or embeds in this channel!", ephemeral=True)
+        await interaction.response.send_message("Error: Missing permissions to send messages!", ephemeral=True)
 
 
 # --- 3. REPUTATION & VOUCH SYSTEM ---
-@bot.tree.command(name="vouch", description="Give a reputation point to a user after a successful deal")
+@bot.tree.command(name="vouch", description="Give a reputation point to a user")
 async def vouch(interaction: discord.Interaction, user: discord.User):
     if user.id == interaction.user.id:
         await interaction.response.send_message("You cannot vouch for yourself!", ephemeral=True)
@@ -147,7 +144,6 @@ async def vouch(interaction: discord.Interaction, user: discord.User):
         
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
-    
     cursor.execute("SELECT count FROM vouches WHERE user_id = ?", (str(user.id),))
     row = cursor.fetchone()
     
@@ -161,11 +157,7 @@ async def vouch(interaction: discord.Interaction, user: discord.User):
     conn.commit()
     conn.close()
     
-    embed = discord.Embed(
-        title="+1 Vouch Registered!",
-        description=f"{interaction.user.mention} has successfully vouched for {user.mention}!\n\n**Current total vouches for {user.name}:** `{new_count}`",
-        color=discord.Color.green()
-    )
+    embed = discord.Embed(title="+1 Vouch Registered!", description=f"{interaction.user.mention} vouched for {user.mention}!\n\n**Total:** `{new_count}`", color=discord.Color.green())
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="rep", description="Check the total vouches of a user")
@@ -177,21 +169,9 @@ async def rep(interaction: discord.Interaction, user: discord.User):
     conn.close()
     
     count = row[0] if row else 0
-    
-    await interaction.response.send_message(f"User {user.mention} currently has **{count} verified vouches** on this server.", ephemeral=False)
-
-
-# --- ERROR HANDLING ---
-@bot.tree.error
-async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    if isinstance(error, app_commands.errors.MissingPermissions):
-        await interaction.response.send_message("You do not have permission to use this command! (Admin only)", ephemeral=True)
-    else:
-        print(f"An error occurred: {error}")
+    await interaction.response.send_message(f"User {user.mention} has **{count} verified vouches**.", ephemeral=False)
 
 
 # --- START BOT ---
 TOKEN = os.getenv("DISCORD_TOKEN", "DEIN_BOT_TOKEN")
-if TOKEN == "DEIN_BOT_TOKEN":
-    print("[WARNING] Please add your actual bot token to the code!")
 bot.run(TOKEN)
