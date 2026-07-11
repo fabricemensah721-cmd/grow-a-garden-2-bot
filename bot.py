@@ -39,70 +39,65 @@ async def on_ready():
         print(f"Error syncing commands: {e}")
 
 
-# --- 1. CLEAN & PURGE SETUP COMMAND (20+ CHANNELS) ---
-@bot.tree.command(name="setup", description="Deletes ALL channels and builds a fresh 20+ channel professional marketplace setup")
+# --- 1. SETUP COMMAND (MIDDLEMAN REMOVED - 20 CHANNELS) ---
+@bot.tree.command(name="setup", description="Deletes ALL channels and builds a fresh 20-channel professional marketplace setup")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup(interaction: discord.Interaction):
-    # Defer response since deleting and creating 20+ channels takes time
     await interaction.response.defer(ephemeral=True)
     guild = interaction.guild
     
-    # STEP 1: Delete all existing channels and categories
+    # STEP 1: Wipe all existing channels and categories
     for channel in guild.channels:
         try:
             await channel.delete()
         except Exception as e:
             print(f"Could not delete channel {channel.name}: {e}")
             
-    # STEP 2: Define categories and channels (Exactly 20 highly optimized professional channels)
+    # STEP 2: Define categories and channels (Exactly 20 channels - NO Middleman category)
     structure = {
         "— INFORMATION —": [
             "📢〢announcements",
             "📜〢rules",
             "📈〢vouches",
             "💎〢premium-benefits",
+            "💳〢payment-methods",
             "🔗〢our-links"
         ],
         "— MARKETPLACE —": [
             "🛒〢buy-server-setup",
             "⚙️〢custom-bots",
+            "📦〢current-stock",
             "🤖〢showcase",
-            "💸〢roblox-cross-trading",
+            "💸〢roblox-trading",
             "🔄〢item-trading",
             "💰〢crypto-exchange"
         ],
-        "— MIDDLEMAN —": [
-            "🤝〢mm-requests",
-            "🛡️〢mm-vouches",
-            "🚫〢scammer-list",
-            "❓〢how-it-works",
-            "🎖️〢trusted-middlemen"
-        ],
-        "— SUPPORT —": [
+        "— SUPPORT & COMMUNITY —": [
             "📩〢tickets",
             "💬〢general-chat",
+            "🎭〢off-topic",
+            "🤖〢bot-commands",
             "🎉〢giveaways",
+            "🤝〢partnerships",
             "❓〢faq"
         ]
     }
     
-    # STEP 3: Create everything cleanly
+    # STEP 3: Rebuild everything cleanly
     for cat_name, channels in structure.items():
         category = await guild.create_category(cat_name)
         for ch_name in channels:
             await guild.create_text_channel(ch_name, category=category)
-            # Small sleep to avoid hitting Discord rate limits during mass creation
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.5) # Avoid rate limits
             
-    await interaction.followup.send("Server successfully wiped and completely rebuilt with 20 professional marketplace channels!", ephemeral=True)
+    await interaction.followup.send("Server successfully wiped and completely rebuilt with 20 professional channels!", ephemeral=True)
 
 
-# --- 2. ADVANCED TICKET & MIDDLEMAN SYSTEM ---
+# --- 2. SUPPORT TICKET SYSTEM ---
 class TicketButtonView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    # BUTTON 1: GENERAL TICKETS
     @discord.ui.button(label="Open Support Ticket", style=discord.ButtonStyle.green, custom_id="open_ticket_btn")
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
@@ -121,7 +116,7 @@ class TicketButtonView(discord.ui.View):
             await interaction.response.send_message(f"You already have an open ticket: {existing_channel.mention}", ephemeral=True)
             return
             
-        ticket_category = discord.utils.get(guild.categories, name="— SUPPORT —")
+        ticket_category = discord.utils.get(guild.categories, name="— SUPPORT & COMMUNITY —")
         channel = await guild.create_text_channel(name=channel_name, category=ticket_category, overwrites=overwrites)
         
         close_view = TicketCloseView()
@@ -131,74 +126,29 @@ class TicketButtonView(discord.ui.View):
         )
         await interaction.response.send_message(f"Your ticket has been created: {channel.mention}", ephemeral=True)
 
-    # BUTTON 2: AUTOMATIC MIDDLEMAN SYSTEM
-    @discord.ui.button(label="Request Middleman", style=discord.ButtonStyle.blurple, custom_id="request_mm_btn")
-    async def request_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        guild = interaction.guild
-        member = interaction.user
-        
-        mm_role = discord.utils.get(guild.roles, name="Middleman") or discord.utils.get(guild.roles, name="Staff")
-        
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            member: discord.PermissionOverwrite(read_messages=True, send_messages=True, attach_files=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True)
-        }
-        
-        if mm_role:
-            overwrites[mm_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-            
-        channel_name = f"🤝〢mm-{member.name.lower()}"
-        existing_channel = discord.utils.get(guild.channels, name=channel_name)
-        
-        if existing_channel:
-            await interaction.response.send_message(f"You already have a pending Middleman room: {existing_channel.mention}", ephemeral=True)
-            return
-            
-        ticket_category = discord.utils.get(guild.categories, name="— MIDDLEMAN —")
-        channel = await guild.create_text_channel(name=channel_name, category=ticket_category, overwrites=overwrites)
-        
-        close_view = TicketCloseView()
-        
-        embed = discord.Embed(
-            title="🤝 New Middleman Request",
-            description="An official middleman will assist you shortly. Please fill out the transaction details below to speed up the process.",
-            color=discord.Color.gold()
-        )
-        embed.add_field(name="User 1 (You)", value=member.mention, inline=True)
-        embed.add_field(name="User 2 (Trading with)", value="Mention them here", inline=True)
-        embed.add_field(name="Your Offer", value="Specify your items/crypto", inline=False)
-        embed.add_field(name="Their Offer", value="Specify their items/crypto", inline=False)
-        
-        ping_msg = f"{mm_role.mention} " if mm_role else ""
-        await channel.send(content=f"{ping_msg}{member.mention}", embed=embed, view=close_view)
-        await interaction.response.send_message(f"Your Middleman room has been created: {channel.mention}", ephemeral=True)
-
 class TicketCloseView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Close Room", style=discord.ButtonStyle.red, custom_id="close_room_btn")
+    @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.red, custom_id="close_room_btn")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("This room will be permanently deleted in 5 seconds...")
+        await interaction.response.send_message("This ticket will be permanently deleted in 5 seconds...")
         await asyncio.sleep(5)
         await interaction.channel.delete()
 
-@bot.tree.command(name="ticket", description="Sends the dual ticket and middleman panel to the current channel")
+@bot.tree.command(name="ticket", description="Sends the ticket creation panel to the current channel")
 @app_commands.checks.has_permissions(administrator=True)
 async def ticket_panel(interaction: discord.Interaction):
     view = TicketButtonView()
     embed = discord.Embed(
-        title="Marketplace Central Hub",
-        description="Click one of the buttons below depending on what you need:\n\n"
-                    "➡️ **Open Support Ticket:** Order a custom server setup or talk to staff.\n"
-                    "➡️ **Request Middleman:** Open a secure trading deal room guarded by our verified Middlemen.",
+        title="Marketplace central Ticket Hub",
+        description="Click the button below to open a private ticket with our team. Here we can discuss your custom server setup or order details.",
         color=discord.Color.blue()
     )
     
     try:
         await interaction.channel.send(embed=embed, view=view)
-        await interaction.response.send_message("Hub panel successfully sent!", ephemeral=True)
+        await interaction.response.send_message("Ticket panel successfully sent!", ephemeral=True)
     except discord.Forbidden:
         await interaction.response.send_message("Error: Missing permissions to send messages!", ephemeral=True)
 
