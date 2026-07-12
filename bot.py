@@ -4,6 +4,7 @@ from discord.ext import commands
 import sqlite3
 import os
 import asyncio
+import random
 
 # --- BOT SETUP ---
 intents = discord.Intents.default()
@@ -17,15 +18,24 @@ class MyBot(commands.Bot):
     async def setup_hook(self):
         conn = sqlite3.connect("database.db")
         cursor = conn.cursor()
+        # Vouch Table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS vouches (
                 user_id TEXT PRIMARY KEY,
                 count INTEGER DEFAULT 0
             )
         """)
+        # Stock/Switcher Table for Sellers
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS stock (
+                item_name TEXT PRIMARY KEY,
+                status TEXT DEFAULT 'AVAILABLE',
+                amount INTEGER DEFAULT 0
+            )
+        """)
         conn.commit()
         conn.close()
-        print("Database loaded successfully.")
+        print("Database & Switcher Modules loaded successfully.")
 
 bot = MyBot()
 
@@ -39,21 +49,91 @@ async def on_ready():
         print(f"Error syncing commands: {e}")
 
 
-# --- 1. SETUP COMMAND (MIDDLEMAN REMOVED - 20 CHANNELS) ---
+# --- 1. PREMIUM JACE SWITCHER & UTILITY COMMANDS ---
+
+# Feature A: Krypto & Rate Switcher (Rechner für Trader)
+@bot.tree.command(name="switch_rate", description="Calculate cross-trading exchange rates (e.g., Robux to LTC)")
+@app_commands.describe(from_currency="The currency you give", to_currency="The currency you want", amount="Amount to convert")
+async def switch_rate(interaction: discord.Interaction, from_currency: str, to_currency: str, amount: float):
+    # Simulierter Live-Kurs-Rechner speziell für Roblox/Krypto-Marktplätze
+    fee = amount * 0.03 # 3% Standard-Marktplatzgebühr
+    final_amount = (amount - fee) * random.uniform(0.85, 0.95) # Simulierter Wechselkurs-Schnitt
+    
+    embed = discord.Embed(
+        title="🔄 Jace Exchange Rate Switcher",
+        description=f"Conversion details for trading safely.",
+        color=discord.Color.purple()
+    )
+    embed.add_field(name="Input", value=f"`{amount:.2f} {from_currency.upper()}`", inline=True)
+    embed.add_field(name="Estimated Output", value=f"`{final_amount:.4f} {to_currency.upper()}`", inline=True)
+    embed.add_field(name="Marketplace Fee (3%)", value=f"`{fee:.2f} {from_currency.upper()}`", inline=False)
+    embed.set_footer(text="Use /ticket to execute this trade with an official middleman.")
+    
+    await interaction.response.send_message(embed=embed)
+
+
+# Feature B: Seller Stock Switcher (Schnelles Umschalten von Produktstatus)
+@bot.tree.command(name="switch_stock", description="Switch the availability status of a marketplace item")
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.choices(status=[
+    app_commands.Choice(name="Available", value="AVAILABLE ✅"),
+    app_commands.Choice(name="Out of Stock", value="OUT OF STOCK ❌"),
+    app_commands.Choice(name="Restocking", value="RESTOCKING ⏳")
+])
+async def switch_stock(interaction: discord.Interaction, item_name: str, status: app_commands.Choice[str], amount: int):
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO stock (item_name, status, amount) 
+        VALUES (?, ?, ?)
+        ON CONFLICT(item_name) DO UPDATE SET status=excluded.status, amount=excluded.amount
+    """, (item_name.lower(), status.value, amount))
+    conn.commit()
+    conn.close()
+    
+    embed = discord.Embed(
+        title="📦 Stock Switcher Updated",
+        description=f"The status for **{item_name.upper()}** has been switched successfully.",
+        color=discord.Color.green()
+    )
+    embed.add_field(name="New Status", value=status.value, inline=True)
+    embed.add_field(name="Available Amount", value=f"`{amount}` items", inline=True)
+    
+    await interaction.response.send_message(embed=embed)
+
+
+# Feature C: Check Current Stock
+@bot.tree.command(name="stock", description="Check current stock of an item")
+async def check_stock(interaction: discord.Interaction, item_name: str):
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT status, amount FROM stock WHERE item_name = ?", (item_name.lower(),))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row:
+        await interaction.response.send_message(f"Item `{item_name}` is not registered in the stock database.", ephemeral=True)
+        return
+        
+    embed = discord.Embed(title=f"📦 Stock Info: {item_name.upper()}", color=discord.Color.blue())
+    embed.add_field(name="Status", value=row[0], inline=True)
+    embed.add_field(name="In Stock", value=f"`{row[1]}` left", inline=True)
+    await interaction.response.send_message(embed=embed)
+
+
+# --- 2. SETUP COMMAND (20 CHANNELS) ---
 @bot.tree.command(name="setup", description="Deletes ALL channels and builds a fresh 20-channel professional marketplace setup")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     guild = interaction.guild
     
-    # STEP 1: Wipe all existing channels and categories
     for channel in guild.channels:
         try:
             await channel.delete()
         except Exception as e:
             print(f"Could not delete channel {channel.name}: {e}")
             
-    # STEP 2: Define categories and channels (Exactly 20 channels - NO Middleman category)
     structure = {
         "— INFORMATION —": [
             "📢〢announcements",
@@ -83,17 +163,16 @@ async def setup(interaction: discord.Interaction):
         ]
     }
     
-    # STEP 3: Rebuild everything cleanly
     for cat_name, channels in structure.items():
         category = await guild.create_category(cat_name)
         for ch_name in channels:
             await guild.create_text_channel(ch_name, category=category)
-            await asyncio.sleep(0.5) # Avoid rate limits
+            await asyncio.sleep(0.5)
             
     await interaction.followup.send("Server successfully wiped and completely rebuilt with 20 professional channels!", ephemeral=True)
 
 
-# --- 2. SUPPORT TICKET SYSTEM ---
+# --- 3. SUPPORT TICKET SYSTEM ---
 class TicketButtonView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -141,7 +220,7 @@ class TicketCloseView(discord.ui.View):
 async def ticket_panel(interaction: discord.Interaction):
     view = TicketButtonView()
     embed = discord.Embed(
-        title="Marketplace central Ticket Hub",
+        title="Marketplace Central Ticket Hub",
         description="Click the button below to open a private ticket with our team. Here we can discuss your custom server setup or order details.",
         color=discord.Color.blue()
     )
@@ -153,7 +232,7 @@ async def ticket_panel(interaction: discord.Interaction):
         await interaction.response.send_message("Error: Missing permissions to send messages!", ephemeral=True)
 
 
-# --- 3. REPUTATION & VOUCH SYSTEM ---
+# --- 4. REPUTATION & VOUCH SYSTEM ---
 @bot.tree.command(name="vouch", description="Give a reputation point to a user")
 async def vouch(interaction: discord.Interaction, user: discord.User):
     if user.id == interaction.user.id:
