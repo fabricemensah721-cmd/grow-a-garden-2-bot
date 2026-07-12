@@ -5,29 +5,30 @@ import sqlite3
 import os
 import asyncio
 import random
-import urllib.request
-import json
 
 # --- BOT SETUP ---
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-class MyBot(commands.Bot):
+class JaceBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=intents)
+        self.channelfill_tasks = {} # Speichert aktive Werbe-Schleifen
         
     async def setup_hook(self):
-        conn = sqlite3.connect("database.db")
+        conn = sqlite3.connect("jace_switcher.db")
         cursor = conn.cursor()
-        # Vouch Table
+        
+        # Staff Tabelle
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS vouches (
+            CREATE TABLE IF NOT EXISTS staff (
                 user_id TEXT PRIMARY KEY,
-                count INTEGER DEFAULT 0
+                username TEXT,
+                status TEXT DEFAULT 'OFFLINE'
             )
         """)
-        # Stock Table
+        # Stock Tabelle
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS stock (
                 item_name TEXT PRIMARY KEY,
@@ -35,333 +36,281 @@ class MyBot(commands.Bot):
                 amount INTEGER DEFAULT 0
             )
         """)
-        # Account Switcher Table (Verschlüsselte/Sichere Aufbewahrung von Notizen/Alts)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS alts (
-                user_id TEXT,
-                alt_name TEXT,
-                status TEXT DEFAULT 'FREE',
-                PRIMARY KEY (user_id, alt_name)
-            )
-        """)
         conn.commit()
         conn.close()
-        print("⚡ Jace Switcher Engine & Database loaded successfully.")
+        print("⚡ Jace's MM Switcher v2 Engine loaded successfully.")
 
-bot = MyBot()
+bot = JaceBot()
 
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user.name}")
     try:
         synced = await bot.tree.sync()
-        print(f"Successfully synced {len(synced)} slash commands.")
+        print(f"Synced {len(synced)} Slash Commands.")
     except Exception as e:
-        print(f"Error syncing commands: {e}")
+        print(f"Sync Error: {e}")
 
 
 # =========================================================================
-# --- DIE WIRKLICH ALLER ALLEINIGEN JACE SWITCHER COMMANDS (PREMIUM) ---
+# --- KATEGORIE 1: CHANNEL FILL SYSTEM (PRÄFIX: !) ---
 # =========================================================================
 
-# 1. LIVE CRYPTO SWITCHER (Holt echte Live-Kurse von einer API)
-@bot.tree.command(name="crypto", description="Get the live price of crypto or switch USD to Crypto amounts")
-@app_commands.describe(coin="The coin (e.g., ltc, btc, eth)", usd_amount="Amount in USD to convert")
-async def crypto(interaction: discord.Interaction, coin: str, usd_amount: float):
-    await interaction.response.defer()
-    coin = coin.lower()
-    
-    # Mapping für Coingecko API
-    coin_map = {"ltc": "litecoin", "btc": "bitcoin", "eth": "ethereum", "usdt": "tether"}
-    api_id = coin_map.get(coin, coin)
-    
-    try:
-        # Sichere Live-Abfrage ohne externe Libraries (urllib)
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={api_id}&vs_currencies=usd"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as response:
-            data = json.loads(response.read().decode())
-            
-        if api_id in data:
-            price = data[api_id]["usd"]
-            crypto_needed = usd_amount / price
-            
-            embed = discord.Embed(title=f"🪙 Live {coin.upper()} Switcher Price", color=discord.Color.gold())
-            embed.add_field(name="Current Price", value=f"`1 {coin.upper()} = ${price:,.2f} USD`", inline=False)
-            embed.add_field(name="Switch Request", value=f"`${usd_amount:.2f} USD` equals **`{crypto_needed:.6f} {coin.upper()}`**", inline=False)
-            embed.set_footer(text="Rates updated live via CoinGecko.")
-            await interaction.followup.send(embed=embed)
-        else:
-            await interaction.followup.send(f"Coin `{coin}` not found. Use ltc, btc, or eth.", ephemeral=True)
-    except Exception as e:
-        # Fallback falls API Rate-Limited ist
-        await interaction.followup.send(f"API busy. Hardcoded standard rate fallback: ${usd_amount:.2f} switching to LTC...", ephemeral=True)
-
-
-# 2. ROBLOX TAX SWITCHER (Berechnet die 30% Steuer für Gamepasses/Shirts)
-@bot.tree.command(name="switch_tax", description="Calculates Roblox 30% tax (What you need to set or what you get)")
-@app_commands.describe(mode="Choose if you want to calculate what you receive or what you must price it at")
-@app_commands.choices(mode=[
-    app_commands.Choice(name="I want to receive X Robux (Calculate Price to set)", value="set"),
-    app_commands.Choice(name="I sell a gamepass for X Robux (Calculate my Profit)", value="get")
-])
-async def switch_tax(interaction: discord.Interaction, mode: app_commands.Choice[str], robux: int):
-    embed = discord.Embed(title="🎮 Roblox Tax Switcher", color=discord.Color.red())
-    
-    if mode.value == "set":
-        # Um X zu bekommen, muss man X / 0.7 verlangen
-        price_to_set = int(robux / 0.7)
-        tax = price_to_set - robux
-        embed.add_field(name="Target Robux (Net)", value=f"`{robux}` Robux", inline=True)
-        embed.add_field(name="Price to Set (Gross)", value=f"**`{price_to_set}` Robux**", inline=True)
-        embed.add_field(name="Roblox Tax (30%)", value=f"`{tax}` Robux", inline=False)
-    else:
-        # Wenn man für X verkauft, bekommt man X * 0.7
-        profit = int(robux * 0.7)
-        tax = robux - profit
-        embed.add_field(name="Selling Price (Gross)", value=f"`{robux}` Robux", inline=True)
-        embed.add_field(name="Your Profit (Net)", value=f"**`{profit}` Robux**", inline=True)
-        embed.add_field(name="Roblox Tax (30%)", value=f"`{tax}` Robux", inline=False)
-        
-    await interaction.response.send_message(embed=embed)
-
-
-# 3. ACCOUNT SWITCHER (Verwaltung von Trading-Alts / Accounts)
-@bot.tree.command(name="switch_account", description="Manage or switch between your registered trading alt-accounts")
-@app_commands.choices(action=[
-    app_commands.Choice(name="Add/Update Alt-Account", value="add"),
-    app_commands.Choice(name="Switch Status (FREE / BUSY)", value="status"),
-    app_commands.Choice(name="List My Alts", value="list")
-])
-async def switch_account(interaction: discord.Interaction, action: app_commands.Choice[str], name: str, status: str = "FREE"):
-    user_id = str(interaction.user.id)
-    conn = sqlite3.connect("database.db")
-    cursor = conn.cursor()
-    
-    if action.value == "add":
-        cursor.execute("INSERT OR REPLACE INTO alts (user_id, alt_name, status) VALUES (?, ?, ?)", (user_id, name, status.upper()))
-        await interaction.response.send_message(f"✅ Alt-Account `{name}` has been saved/updated with status `{status.upper()}`.", ephemeral=True)
-    elif action.value == "status":
-        cursor.execute("UPDATE alts SET status = ? WHERE user_id = ? AND alt_name = ?", (status.upper(), user_id, name))
-        await interaction.response.send_message(f"🔄 Switched status of `{name}` to `{status.upper()}`.", ephemeral=True)
-    elif action.value == "list":
-        cursor.execute("SELECT alt_name, status FROM alts WHERE user_id = ?", (user_id,))
-        rows = cursor.fetchall()
-        if not rows:
-            await interaction.response.send_message("❌ You have no alt-accounts registered.", ephemeral=True)
-            conn.close()
-            return
-        
-        embed = discord.Embed(title="👤 Your Switcher Alt-Accounts", color=discord.Color.blue())
-        for r in rows:
-            embed.add_field(name=f"Acc: {r[0]}", value=f"Status: `{r[1]}`", inline=False)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        
-    conn.commit()
-    conn.close()
-
-
-# 4. CROSS-TRADE EXCHANGE RATE SWITCHER
-@bot.tree.command(name="switch_rate", description="Calculate cross-trading exchange rates (e.g., Robux to LTC)")
-async def switch_rate(interaction: discord.Interaction, from_currency: str, to_currency: str, amount: float):
-    fee = amount * 0.03
-    final_amount = (amount - fee) * random.uniform(0.85, 0.95)
-    
-    embed = discord.Embed(title="🔄 Jace Exchange Rate Switcher", color=discord.Color.purple())
-    embed.add_field(name="Input", value=f"`{amount:.2f} {from_currency.upper()}`", inline=True)
-    embed.add_field(name="Estimated Output", value=f"`{final_amount:.4f} {to_currency.upper()}`", inline=True)
-    embed.add_field(name="Marketplace Fee (3%)", value=f"`{fee:.2f} {from_currency.upper()}`", inline=False)
-    await interaction.response.send_message(embed=embed)
-
-
-# 5. MARKETPLACE STOCK SWITCHER
-@bot.tree.command(name="switch_stock", description="Switch the availability status of a marketplace item")
-@app_commands.checks.has_permissions(administrator=True)
-@app_commands.choices(status=[
-    app_commands.Choice(name="Available", value="AVAILABLE ✅"),
-    app_commands.Choice(name="Out of Stock", value="OUT OF STOCK ❌"),
-    app_commands.Choice(name="Restocking", value="RESTOCKING ⏳")
-])
-async def switch_stock(interaction: discord.Interaction, item_name: str, status: app_commands.Choice[str], amount: int):
-    conn = sqlite3.connect("database.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO stock (item_name, status, amount) 
-        VALUES (?, ?, ?)
-        ON CONFLICT(item_name) DO UPDATE SET status=excluded.status, amount=excluded.amount
-    """, (item_name.lower(), status.value, amount))
-    conn.commit()
-    conn.close()
-    
-    embed = discord.Embed(title="📦 Stock Switcher Updated", color=discord.Color.green())
-    embed.add_field(name="New Status", value=status.value, inline=True)
-    embed.add_field(name="Available Amount", value=f"`{amount}` items", inline=True)
-    await interaction.response.send_message(embed=embed)
-
-
-# 6. STOCK CHECKER
-@bot.tree.command(name="stock", description="Check current stock of an item")
-async def check_stock(interaction: discord.Interaction, item_name: str):
-    conn = sqlite3.connect("database.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT status, amount FROM stock WHERE item_name = ?", (item_name.lower(),))
-    row = cursor.fetchone()
-    conn.close()
-    
-    if not row:
-        await interaction.response.send_message(f"Item `{item_name}` is not in the database.", ephemeral=True)
+async def fill_loop(ctx, channel_id):
+    channel = ctx.bot.get_channel(channel_id)
+    if not channel:
         return
+    try:
+        while True:
+            embed = discord.Embed(
+                title="⚡ Jace's Auto-MM Service",
+                description="Fastest & Safest Middleman Service in the market.\nUse `/ticket` to open a deal instantly!",
+                color=discord.Color.purple()
+            )
+            embed.add_field(name="Supported Crypto", value="`LTC` | `BTC` | `ETH` | `USDT`", inline=True)
+            embed.add_field(name="Roblox Trading", value="`Limiteds` | `Robux` | `Accounts`", inline=True)
+            embed.set_footer(text="Automated marketing broadcast active.")
+            
+            await channel.send(embed=embed)
+            await asyncio.sleep(30) # Sendet alle 30 Sekunden eine Nachricht (Zeit anpassbar)
+    except asyncio.CancelledError:
+        print(f"Loop stopped for channel {channel_id}")
+
+@bot.command(name="channelfill")
+@commands.has_permissions(administrator=True)
+async def channelfill(ctx, action: str = "start"):
+    channel_id = ctx.channel.id
+    
+    if action.lower() == "start":
+        if channel_id in bot.channelfill_tasks:
+            await ctx.send("❌ Channel fill loop is already running in this channel.", delete_after=5)
+            return
+            
+        bot.channelfill_tasks[channel_id] = bot.loop.create_task(fill_loop(ctx, channel_id))
         
-    embed = discord.Embed(title=f"📦 Stock Info: {item_name.upper()}", color=discord.Color.blue())
-    embed.add_field(name="Status", value=row[0], inline=True)
-    embed.add_field(name="In Stock", value=f"`{row[1]}` left", inline=True)
-    await interaction.response.send_message(embed=embed)
-
-
-# 7. DEAL LOGGER (Loggt Deals direkt im Ticket-Kanal ein)
-@bot.tree.command(name="log_deal", description="Logs a deal layout inside a ticket for easy tracking")
-@app_commands.describe(partner="The user you are trading with", your_offer="What you offer", their_offer="What they offer")
-async def log_deal(interaction: discord.Interaction, partner: discord.User, your_offer: str, their_offer: str):
-    embed = discord.Embed(title="📝 Jace Official Deal Log", color=discord.Color.teal())
-    embed.add_field(name="Trader 1 (Sender)", value=interaction.user.mention, inline=True)
-    embed.add_field(name="Trader 2 (Partner)", value=partner.mention, inline=True)
-    embed.add_field(name="Trader 1 Sends:", value=f"`{your_offer}`", inline=False)
-    embed.add_field(name="Trader 2 Sends:", value=f"`{their_offer}`", inline=False)
-    embed.set_footer(text="Please wait for an admin or staff member to verify the log.")
-    await interaction.response.send_message(embed=embed)
+        embed = discord.Embed(title="🟢 Channel Fill Complete", color=discord.Color.green())
+        embed.add_field(name="Status", value="`Loops Started (every 30s)`", inline=False)
+        embed.set_footer(text="Use '!channelfill stop' to halt all loops.")
+        await ctx.send(embed=embed)
+        
+    elif action.lower() == "stop":
+        if channel_id in bot.channelfill_tasks:
+            bot.channelfill_tasks[channel_id].cancel()
+            del bot.channelfill_tasks[channel_id]
+            
+            embed = discord.Embed(title="🔴 Channel Fill Stopped", color=discord.Color.red())
+            embed.add_field(name="Status", value="`Stopped looping texts!`", inline=False)
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send("❌ No active fill loop found in this channel.", delete_after=5)
 
 
 # =========================================================================
-# --- RESTLICHE SYSTEME (SETUP, TICKETS, VOUCHES) ---
+# --- KATEGORIE 2: STAFF MANAGEMENT SYSTEM (SLASH COMMANDS) ---
 # =========================================================================
 
-# --- AUTOMATIC SETUP ---
-@bot.tree.command(name="setup", description="Deletes ALL channels and builds a fresh 20-channel professional marketplace setup")
+@bot.tree.command(name="staff", description="Add yourself or a user to the active staff list and go online")
+@app_commands.checks.has_permissions(administrator=True)
+async def staff_on(interaction: discord.Interaction):
+    await interaction.response.defer()
+    
+    # Animierter Verarbeitungs-Effekt wie im Video
+    embed_processing = discord.Embed(title="Processing...", description="Reading Jace's MM Service configuration...", color=discord.Color.orange())
+    msg = await interaction.followup.send(embed=embed_processing)
+    await asyncio.sleep(2) # Kurze Pause für den Effekt
+    
+    conn = sqlite3.connect("jace_switcher.db")
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR REPLACE INTO staff (user_id, username, status) VALUES (?, ?, 'ONLINE')", (str(interaction.user.id), interaction.user.name))
+    conn.commit()
+    conn.close()
+    
+    embed_done = discord.Embed(
+        title="🟢 Staff Join Complete",
+        description="Successfully synchronized with the Jace MM Staff Network.",
+        color=discord.Color.green()
+    )
+    embed_done.add_field(name="Staff Member", value=interaction.user.mention, inline=True)
+    embed_done.add_field(name="Current Mode", value="`ONLINE 🟢`", inline=True)
+    await msg.edit(embed=embed_done)
+
+@bot.tree.command(name="staffoff", description="Set your staff status to offline")
+@app_commands.checks.has_permissions(administrator=True)
+async def staff_off(interaction: discord.Interaction):
+    conn = sqlite3.connect("jace_switcher.db")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE staff SET status = 'OFFLINE' WHERE user_id = ?", (str(interaction.user.id),))
+    conn.commit()
+    conn.close()
+    
+    embed = discord.Embed(title="🔴 Staff Account Offline", description=f"{interaction.user.mention} is now offline.", color=discord.Color.red())
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="staffstatus", description="Check current active online/offline staff numbers")
+async def staff_status(interaction: discord.Interaction):
+    conn = sqlite3.connect("jace_switcher.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT username, status FROM staff")
+    rows = cursor.fetchall()
+    conn.close()
+    
+    total_staff = len(rows)
+    online_staff = len([r for r in rows if r[1] == "ONLINE"])
+    
+    embed = discord.Embed(title="👥 Jace MM Team Staff Status", color=discord.Color.blue())
+    embed.add_field(name="Online Count", value=f"`{online_staff}` Staff active", inline=True)
+    embed.add_field(name="Total Configured", value=f"`{total_staff}` Members", inline=True)
+    
+    staff_list = ""
+    for r in rows:
+        emoji = "🟢" if r[1] == "ONLINE" else "🔴"
+        staff_list += f"{emoji} {r[0]} ({r[1]})\n"
+        
+    embed.add_field(name="Team Overview", value=staff_list if staff_list else "No staff registered yet.", inline=False)
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="staffreload", description="Reload fake or real staff configurations")
+@app_commands.checks.has_permissions(administrator=True)
+async def staff_reload(interaction: discord.Interaction):
+    await interaction.response.send_message("🔄 `Reloading fake/real staff configs...` Config applied successfully!", ephemeral=True)
+
+
+# =========================================================================
+# --- KATEGORIE 3: AUTO CRYPTO MIDDLEMAN HUB & WORKFLOW ---
+# =========================================================================
+
+# Modal (Formular) für den Deal-Eintrag
+class DealModal(discord.ui.Modal, title="Jace Auto-MM: Deal Setup"):
+    partner_id = discord.ui.TextInput(label="What is your Trader Partner ID/Username?", placeholder="e.g. 985522...", required=True)
+    giving = discord.ui.TextInput(label="What are YOU giving?", placeholder="e.g. 25$ LTC or Roblox Korblox Account", required=True)
+    receiving = discord.ui.TextInput(label="What is your PARTNER giving?", placeholder="e.g. Ice Valkyrie Roblox Limited", required=True)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        member = interaction.user
+        
+        # Erstelle privaten Deal-Kanal
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            member: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True)
+        }
+        
+        channel = await guild.create_text_channel(
+            name=f"deal-{member.name.lower()}",
+            category=discord.utils.get(guild.categories, name="— SUPPORT & COMMUNITY —"),
+            overwrites=overwrites
+        )
+        
+        # Deal Bestätigungs-Embed im neuen Ticket
+        embed = discord.Embed(title="🛡️ Jace Auto-MM Deal Verification", description="Please verify if the following information is correct.", color=discord.Color.blue())
+        embed.add_field(name="Sender (You)", value=member.mention, inline=True)
+        embed.add_field(name="Partner", value=f"<@{self.partner_id.value}>" if self.partner_id.value.isdigit() else self.partner_id.value, inline=True)
+        embed.add_field(name="Your Offer", value=f"`{self.giving.value}`", inline=False)
+        embed.add_field(name="Partner's Offer", value=f"`{self.receiving.value}`", inline=False)
+        
+        class VerifyView(discord.ui.View):
+            def __init__(self): super().__init__(timeout=None)
+            
+            @discord.ui.button(label="Correct", style=discord.ButtonStyle.green)
+            async def correct(self, i: discord.Interaction, b: discord.ui.Button):
+                # Schritt 2: Betrag festlegen Formular simulieren
+                await i.response.send_modal(AmountModal())
+                
+            @discord.ui.button(label="Incorrect / Cancel", style=discord.ButtonStyle.red)
+            async def incorrect(self, i: discord.Interaction, b: discord.ui.Button):
+                await i.response.send_message("❌ Deal cancelled. This channel will close in 5 seconds.")
+                await asyncio.sleep(5)
+                await i.channel.delete()
+
+        await channel.send(embed=embed, view=VerifyView())
+        await interaction.followup.send(f"✅ Deal Ticket created: {channel.mention}", ephemeral=True)
+
+class AmountModal(discord.ui.Modal, title="Set USD Value"):
+    amount = discord.ui.TextInput(label="Enter Deal Value in USD", placeholder="e.g. 25.00", required=True)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        usd_val = float(self.amount.value)
+        ltc_val = usd_val / 75.0 # Simulierter LTC Kurs: 1 LTC = 75$
+        
+        embed = discord.Embed(title="💳 Jace Auto-MM: Payment Information", description="Send the EXACT crypto amount to the secure escrow wallet.", color=discord.Color.gold())
+        embed.add_field(name="USD Amount", value=f"`${usd_val:.2f} USD`", inline=True)
+        embed.add_field(name="LTC Value Required", value=f"`{ltc_val:.6f} LTC`", inline=True)
+        embed.add_field(name="Escrow LTC Wallet Address", value="`LTC-JACE-SWITCHER-ESCROW-V2-FAKE-ADDRESS-9921`", inline=False)
+        embed.set_footer(text="This ticket automatically closes if no transaction is found in 20 minutes.")
+        
+        class BlockchainSimView(discord.ui.View):
+            def __init__(self): super().__init__(timeout=None)
+            
+            @discord.ui.button(label="Simulate Payment Confirmed (Blockchain)", style=discord.ButtonStyle.blurple)
+            async def confirm_pay(self, i: discord.Interaction, b: discord.ui.Button):
+                # Zahlungs-Bestätigung wie im Video
+                emb_success = discord.Embed(title="✅ Transaction Confirmed", description=f"Blockchain detected payment of `{ltc_val:.6f} LTC`!", color=discord.Color.green())
+                emb_success.add_field(name="Status", value="**Escrow Held Safely 🔒**\nStaff/Bot is checking the goods now. You may now proceed with the trade.", inline=False)
+                
+                class ReleaseView(discord.ui.View):
+                    def __init__(self): super().__init__(timeout=None)
+                    @discord.ui.button(label="Release LTC to Partner", style=discord.ButtonStyle.green)
+                    async def release(self, i2: discord.Interaction, b2: discord.ui.Button):
+                        await i2.response.send_message("💸 **Escrow Released!** Funds have been forwarded to the partner. Deal complete! Closing ticket in 10s...")
+                        await asyncio.sleep(10)
+                        await i2.channel.delete()
+                        
+                await i.response.send_message(embed=emb_success, view=ReleaseView())
+                
+        await interaction.response.send_message(embed=embed, view=BlockchainSimView())
+
+# Das Haupt-Panel im #tickets Kanal
+class TicketHubView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Request Litecoin (LTC)", style=discord.ButtonStyle.green, custom_id="req_ltc_btn")
+    async def req_ltc(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(DealModal())
+
+@bot.tree.command(name="ticket", description="Sends the premium Auto-MM Middleman panel to the current channel")
+@app_commands.checks.has_permissions(administrator=True)
+async def ticket_panel(interaction: discord.Interaction):
+    view = TicketHubView()
+    embed = discord.Embed(
+        title="🤖 Jace's Auto Middleman Hub",
+        description="Click the buttons below to initiate a fully automated, lightning-fast Escrow Middleman Deal via Crypto.",
+        color=discord.Color.purple()
+    )
+    embed.add_field(name="Fees", value="• Deals $250+ ➔ **$1.50 Fee**\n• Deals $50-$250 ➔ **$0.50 Fee**\n• Deals under $50 ➔ **FREE**", inline=False)
+    await interaction.channel.send(embed=embed, view=view)
+    await interaction.response.send_message("Premium Jace MM v2 Panel deployed successfully!", ephemeral=True)
+
+
+# =========================================================================
+# --- KATEGORIE 4: REPUTATION & SERVER SETUP CORE ---
+# =========================================================================
+
+@bot.tree.command(name="setup", description="Wipes and automatically builds the 20 professional marketplace channels")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     guild = interaction.guild
-    
     for channel in guild.channels:
-        try:
-            await channel.delete()
-        except Exception as e:
-            print(f"Could not delete channel {channel.name}: {e}")
+        try: await channel.delete()
+        except: pass
             
     structure = {
-        "— INFORMATION —": [
-            "📢〢announcements", "📜〢rules", "📈〢vouches", "💎〢premium-benefits", "💳〢payment-methods", "🔗〢our-links"
-        ],
-        "— MARKETPLACE —": [
-            "🛒〢buy-server-setup", "⚙️〢custom-bots", "📦〢current-stock", "🤖〢showcase", "💸〢roblox-trading", "🔄〢item-trading", "💰〢crypto-exchange"
-        ],
-        "— SUPPORT & COMMUNITY —": [
-            "📩〢tickets", "💬〢general-chat", "🎭〢off-topic", "🤖〢bot-commands", "🎉〢giveaways", "🤝〢partnerships", "❓〢faq"
-        ]
+        "— INFORMATION —": ["📢〢announcements", "📜〢rules", "📈〢vouches", "💎〢premium-benefits"],
+        "— MARKETPLACE —": ["🛒〢buy-server-setup", "⚙️〢custom-bots", "📦〢current-stock", "🤖〢showcase"],
+        "— SUPPORT & COMMUNITY —": ["📩〢tickets", "💬〢general-chat", "🎉〢giveaways", "🤝〢partnerships"]
     }
     
     for cat_name, channels in structure.items():
         category = await guild.create_category(cat_name)
         for ch_name in channels:
             await guild.create_text_channel(ch_name, category=category)
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.3)
             
-    await interaction.followup.send("Server successfully wiped and completely rebuilt with 20 professional channels!", ephemeral=True)
+    await interaction.followup.send("Server built with precision!", ephemeral=True)
 
-
-# --- TICKET CORE ---
-class TicketButtonView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="Open Support Ticket", style=discord.ButtonStyle.green, custom_id="solo_support_ticket_btn")
-    async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        guild = interaction.guild
-        member = interaction.user
-        
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            member: discord.PermissionOverwrite(read_messages=True, send_messages=True, attach_files=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True)
-        }
-        
-        channel_name = f"ticket-{member.name.lower()}"
-        existing_channel = discord.utils.get(guild.channels, name=channel_name)
-        
-        if existing_channel:
-            await interaction.response.send_message(f"You already have an open ticket: {existing_channel.mention}", ephemeral=True)
-            return
-            
-        ticket_category = discord.utils.get(guild.categories, name="— SUPPORT & COMMUNITY —")
-        channel = await guild.create_text_channel(name=channel_name, category=ticket_category, overwrites=overwrites)
-        
-        close_view = TicketCloseView()
-        await channel.send(
-            f"Welcome {member.mention}! Please describe what service or setup you want to purchase. Support will be with you shortly.",
-            view=close_view
-        )
-        await interaction.response.send_message(f"Your ticket has been created: {channel.mention}", ephemeral=True)
-
-class TicketCloseView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.red, custom_id="close_solo_ticket_btn")
-    async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("This ticket will be permanently deleted in 5 seconds...")
-        await asyncio.sleep(5)
-        await interaction.channel.delete()
-
-@bot.tree.command(name="ticket", description="Sends the ticket creation panel to the current channel")
-@app_commands.checks.has_permissions(administrator=True)
-async def ticket_panel(interaction: discord.Interaction):
-    view = TicketButtonView()
-    embed = discord.Embed(
-        title="Marketplace Central Ticket Hub",
-        description="Click the button below to open a private ticket with our team. Here we can discuss your custom server setup or order details.",
-        color=discord.Color.blue()
-    )
-    await interaction.channel.send(embed=embed, view=view)
-    await interaction.response.send_message("Ticket panel successfully sent!", ephemeral=True)
-
-
-# --- REPUTATION / VOUCH SYSTEM ---
-@bot.tree.command(name="vouch", description="Give a reputation point to a user")
-async def vouch(interaction: discord.Interaction, user: discord.User):
-    if user.id == interaction.user.id:
-        await interaction.response.send_message("You cannot vouch for yourself!", ephemeral=True)
-        return
-        
-    conn = sqlite3.connect("database.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT count FROM vouches WHERE user_id = ?", (str(user.id),))
-    row = cursor.fetchone()
-    
-    if row is None:
-        cursor.execute("INSERT INTO vouches (user_id, count) VALUES (?, 1)", (str(user.id),))
-        new_count = 1
-    else:
-        new_count = row[0] + 1
-        cursor.execute("UPDATE vouches SET count = ? WHERE user_id = ?", (new_count, str(user.id)))
-        
-    conn.commit()
-    conn.close()
-    
-    embed = discord.Embed(title="+1 Vouch Registered!", description=f"{interaction.user.mention} vouched for {user.mention}!\n\n**Total:** `{new_count}`", color=discord.Color.green())
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="rep", description="Check the total vouches of a user")
-async def rep(interaction: discord.Interaction, user: discord.User):
-    conn = sqlite3.connect("database.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT count FROM vouches WHERE user_id = ?", (str(user.id),))
-    row = cursor.fetchone()
-    conn.close()
-    
-    count = row[0] if row else 0
-    await interaction.response.send_message(f"User {user.mention} has **{count} verified vouches**.", ephemeral=False)
-
-
-# --- START BOT ---
+# --- CONFIG START ---
 TOKEN = os.getenv("DISCORD_TOKEN", "DEIN_BOT_TOKEN")
 bot.run(TOKEN)
