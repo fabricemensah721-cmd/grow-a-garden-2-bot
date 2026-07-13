@@ -8,12 +8,12 @@ import string
 from flask import Flask
 from threading import Thread
 
-# --- UPTIMEROBOT KEEP ALIVE SERVER ---
+# --- UPTIMEROBOT MULTI-THREAD SERVER ---
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "⚡ Jace MM Bot is Online and Active!"
+    return "⚡ JMS Bot Engine is Live!"
 
 def run_server():
     app.run(host='0.0.0.0', port=8080)
@@ -22,7 +22,7 @@ def keep_alive():
     t = Thread(target=run_server)
     t.start()
 
-# --- BOT SETUP ---
+# --- BOT INTERNALS ---
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -32,8 +32,9 @@ class MainMMBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
         
     async def setup_hook(self):
+        # Hält die Interaktionen im Haupt-Kanal nach Restarts aktiv
         self.add_view(MMRequestView())
-        print("⚡ Main MM Bot Engine mit automatischem Middleman-Profile-Claiming aktiv.")
+        print("⚡ JMS Bot: 1:1 Ticket & Claim System vollständig aktiv.")
 
 bot = MainMMBot()
 
@@ -48,7 +49,7 @@ async def on_ready():
 
 
 # =========================================================================
-# --- DROPDOWN & REQUEST ENGINE ---
+# --- SELECTION HUB (EPHEMERAL DROPDOWN) ---
 # =========================================================================
 
 class MMTierSelect(discord.ui.Select):
@@ -84,7 +85,7 @@ class MMRequestView(discord.ui.View):
 
 
 # =========================================================================
-# --- MODAL FORMAT & TICKET OPEN ---
+# --- MODAL SUBMISSION & 1:1 EMBED GENERATION ---
 # =========================================================================
 
 class MMRequestModal(discord.ui.Modal, title="Middleman Request"):
@@ -94,12 +95,12 @@ class MMRequestModal(discord.ui.Modal, title="Middleman Request"):
 
     trader = discord.ui.TextInput(label="Who is your trade partner? (Name/ID)", placeholder="e.g. Chainsaw", required=True)
     giving = discord.ui.TextInput(label="What are you giving?", placeholder="e.g. Im trading 2 uni", required=True)
-    receiving = discord.ui.TextInput(label="What are they giving?", placeholder="e.g. 1 venus fly trap", required=True)
+    receiving = discord.ui.TextInput(label="What are they giving?", placeholder="e.g. He is giving me 1 venus fly trap", required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
         guild = interaction.guild
         random_id = "".join(random.choices(string.digits, k=4))
-        channel_name = f"mm-waiting-{random_id}"
+        channel_name = f"│-mm-waiting-{random_id}"
         
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
@@ -108,116 +109,86 @@ class MMRequestModal(discord.ui.Modal, title="Middleman Request"):
         
         ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
         
-        # Das exakte Trade-Embed-Design aus deinem Screenshot
+        # 1:1 Design aus Bild 1 (Inhalt der Box)
         embed = discord.Embed(color=discord.Color.from_rgb(47, 49, 54))
         embed.description = (
-            "## • __Trade__ •\n\n"
-            f"**[0] {interaction.user.mention}'s side:**\n"
+            "## │ • **__Trade__** •\n\n"
+            f"**`[0]` {interaction.user.mention}'s side:**\n"
             f"```\n{self.giving.value}\n```\n"
-            f"**[87] @{self.trader.value}'s side:**\n"
+            f"**`[87]` @{self.trader.value}'s side:**\n"
             f"```\n{self.receiving.value}\n```"
         )
         
-        # Sende Kontrollleiste mit dem grünen Claim-Button
+        # Sende die Trade-Box zusammen mit dem Claim & Delete System
         await ticket_channel.send(embed=embed, view=TicketControlView())
-        await interaction.response.send_message(f"✅ Ticket created! Please go to {ticket_channel.mention}", ephemeral=True)
+        await interaction.response.send_message(f"✅ Ticket created! Go to {ticket_channel.mention}", ephemeral=True)
 
 
 # =========================================================================
-# --- 1:1 CLAIM ENGINE & MIDDLEMAN PROFILE PROFILE CARDS ---
+# --- 1:1 ACTION BUTTONS AND DYNAMIC PROFILE CARDS ---
 # =========================================================================
 
 class MiddlemanProfileLinks(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        # Hier fügst du Buttons hinzu, die genau wie im Screenshot aussehen (Krypto-Adressen / Infos)
-        self.add_item(discord.ui.Button(label="w", style=discord.ButtonStyle.secondary, custom_id="dummy_w"))
-        self.add_item(discord.ui.Button(label="Ł ltc", style=discord.ButtonStyle.primary, custom_id="dummy_ltc"))
-        self.add_item(discord.ui.Button(label="ash", style=discord.ButtonStyle.primary, custom_id="dummy_name"))
-        self.add_item(discord.ui.Button(label="☤ usdt", style=discord.ButtonStyle.success, custom_id="dummy_usdt"))
-        self.add_item(discord.ui.Button(label="☵ sol", style=discord.ButtonStyle.primary, custom_id="dummy_sol"))
+        # Exakte Reihenfolge und Farben der Buttons unter der Profilkarte
+        self.add_item(discord.ui.Button(label="w", style=discord.ButtonStyle.secondary, custom_id="m_w"))
+        self.add_item(discord.ui.Button(label="Ł altc", style=discord.ButtonStyle.primary, custom_id="m_ltc"))
+        self.add_item(discord.ui.Button(label="ash", style=discord.ButtonStyle.primary, custom_id="m_ash"))
+        self.add_item(discord.ui.Button(label="₮ ausdt", style=discord.ButtonStyle.success, custom_id="m_usdt"))
+        self.add_item(discord.ui.Button(label="☵ asol", style=discord.ButtonStyle.primary, custom_id="m_sol"))
+        self.add_item(discord.ui.Button(label="aeth", style=discord.ButtonStyle.primary, custom_id="m_eth"))
 
 class TicketControlView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Claim Ticket (Staff Only)", style=discord.ButtonStyle.success, custom_id="btn_claim_ticket")
+    @discord.ui.button(label="Claim Ticket", style=discord.ButtonStyle.success, custom_id="btn_claim_ticket")
     async def claim(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Berechtigungs-Check für Teammitglieder
         if not interaction.user.guild_permissions.manage_channels:
             await interaction.response.send_message("❌ Only Staff can claim this ticket.", ephemeral=True)
             return
         
-        # Button nach Klick deaktivieren
+        # Deaktiviert den Claim-Button nach Benutzung
         button.disabled = True
         await interaction.response.edit_message(view=self)
         
-        # 1. Kanal umbenennen in den Namen des Middlemans (wie im Screenshot zu sehen)
-        mm_name = interaction.user.name.lower()
-        await interaction.channel.edit(name=f"│-mm-{mm_name}")
+        # 1. Ändert den Kanalnamen exakt in den Namen des Middlemans (z.B. "ash")
+        mm_short_name = interaction.user.display_name.lower().split()[0]
+        await interaction.channel.edit(name=f"{mm_short_name}")
         
-        # 2. Text-Erwähnung senden
+        # 2. Text-Bestätigung senden
         await interaction.channel.send(content=f"{interaction.user.mention} is your middleman.")
         
-        # 3. Das 1:1 Profil-Embed des Middlemans generieren
+        # 3. Profilkarte des Middlemans bauen (1:1 Abbild aus Bild 1 & 2)
         profile_embed = discord.Embed(
-            title=interaction.user.display_name,
+            title=f"## **{interaction.user.display_name}**", 
             color=discord.Color.from_rgb(47, 49, 54)
         )
-        
-        # Zeigt Namen, ID und die farbige Erwähnung der Middleman-Rolle an
         profile_embed.description = (
             f"### **{interaction.user.name}**\n\n"
             f"**ID:** `{interaction.user.id}`\n"
-            f"**Rank:** <@&123456789012345678>" # Ersetze das hier durch die echte ID deiner Middleman-Rolle auf dem Server
+            f"**Rank:** <@&123456789012345678>" # <-- HIER DEINE MIDDLEMAN ROLLEN ID EINTRAGEN
         )
         
-        # Setzt das Avatar-Bild des Middlemans rechts in das Embed
         if interaction.user.avatar:
             profile_embed.set_thumbnail(url=interaction.user.avatar.url)
             
-        # Sende die Profilkarte inklusive der Krypto-Buttons
+        # Sende die Profilkarte mit den farbigen Krypto-Buttons darunter
         await interaction.channel.send(embed=profile_embed, view=MiddlemanProfileLinks())
-
-    @discord.ui.button(label="Create Vouch", emoji="📈", style=discord.ButtonStyle.secondary, custom_id="btn_create_vouch")
-    async def create_vouch(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(VouchModal())
 
     @discord.ui.button(label="Delete Ticket", style=discord.ButtonStyle.red, custom_id="btn_close_mm_ticket")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("🔒 Deleting ticket in 5 seconds...")
-        await asyncio.sleep(5)
+        await interaction.response.send_message("🔒 Delete Ticket in progress... Closing in 3 seconds.")
+        await asyncio.sleep(3)
         await interaction.channel.delete()
 
 
-class VouchModal(discord.ui.Modal, title="Submit a Vouch"):
-    mm_user = discord.ui.TextInput(label="Middleman Name / Staff Name", placeholder="e.g. ash", required=True)
-    rating = discord.ui.TextInput(label="Rating (1-5 Stars)", placeholder="⭐⭐⭐⭐⭐", required=True)
-    comment = discord.ui.TextInput(label="Your Feedback / Comment", placeholder="Fast and safe middleman!", style=discord.TextStyle.paragraph, required=True)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        vouch_channel = discord.utils.get(interaction.guild.text_channels, name="vouches") or \
-                        discord.utils.get(interaction.guild.text_channels, name="📈〢vouches")
-                        
-        if not vouch_channel:
-            await interaction.response.send_message("❌ Vouch-Kanal wurde nicht gefunden.", ephemeral=True)
-            return
-            
-        embed = discord.Embed(title="📈 New Success Vouch", color=discord.Color.gold())
-        embed.add_field(name="Submitted By:", value=interaction.user.mention, inline=True)
-        embed.add_field(name="Middleman Involved:", value=f"`{self.mm_user.value}`", inline=True)
-        embed.add_field(name="Rating:", value=self.rating.value, inline=False)
-        embed.add_field(name="Comment:", value=f"*{self.comment.value}*", inline=False)
-        
-        await vouch_channel.send(embed=embed)
-        await interaction.response.send_message("✅ Your vouch has been published!", ephemeral=True)
-
-
 # =========================================================================
-# --- COMMAND TO DEPLOY MAIN EMBED IN #mm-req ---
+# --- CORE INITIALIZER COMMAND ---
 # =========================================================================
 
-@bot.tree.command(name="setup_mmreq", description="Deploys the 1:1 manual Middleman Request panel into the channel")
+@bot.tree.command(name="setup_mmreq", description="Deploy initial request post")
 @app_commands.checks.has_permissions(administrator=True)
 async def deploy_mm_request(interaction: discord.Interaction):
     embed = discord.Embed(color=discord.Color.from_rgb(47, 49, 54))
@@ -233,13 +204,11 @@ async def deploy_mm_request(interaction: discord.Interaction):
         "1. ***You must both agree on the deal before using a middleman. Troll tickets will have consequences.***\n"
         "2. ***Specify what you're trading (e.g. FR Frost Dragon in Adopt me > $20 USD LTC). Don't just put \"adopt me\" in the embed.***"
     )
-
     await interaction.channel.send(embed=embed, view=MMRequestView())
-    await interaction.response.send_message("🎯 Manual Middleman Request Hub deployed successfully!", ephemeral=True)
+    await interaction.response.send_message("🎯 Hub deployed!", ephemeral=True)
 
+# --- START RUNTIME ---
+TOKEN = os.getenv("DISCORD_TOKEN", "DEIN_BOT_TOKEN")
 
-# --- RUN CODE ---
-TOKEN = os.getenv("DISCORD_TOKEN", "YOUR_MAIN_BOT_TOKEN")
-
-keep_alive() 
+keep_alive()
 bot.run(TOKEN)
