@@ -8,21 +8,14 @@ import string
 from flask import Flask
 from threading import Thread
 
-# --- UPTIMEROBOT MULTI-THREAD SERVER ---
+# --- UPTIMEROBOT SERVER ---
 app = Flask('')
-
 @app.route('/')
-def home():
-    return "⚡ JMS Bot Engine is Live!"
+def home(): return "⚡ JMS Bot Engine is Live!"
+def run_server(): app.run(host='0.0.0.0', port=8080)
+def keep_alive(): Thread(target=run_server).start()
 
-def run_server():
-    app.run(host='0.0.0.0', port=8080)
-
-def keep_alive():
-    t = Thread(target=run_server)
-    t.start()
-
-# --- BOT INTERNALS ---
+# --- BOT SETUP ---
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -33,22 +26,12 @@ class MainMMBot(commands.Bot):
         
     async def setup_hook(self):
         self.add_view(MMRequestView())
-        print("⚡ JMS Bot: 1:1 System mit blauen Embeds geladen.")
+        print("⚡ JMS Bot: Webhook Profilbild-Engine aktiv.")
 
 bot = MainMMBot()
 
-@bot.event
-async def on_ready():
-    print(f"Eingeloggt als {bot.user.name}")
-    try:
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} Slash Commands.")
-    except Exception as e:
-        print(f"Sync Error: {e}")
-
-
 # =========================================================================
-# --- SELECTION HUB (EPHEMERAL DROPDOWN) ---
+# --- DROPDOWN & PANEL ---
 # =========================================================================
 
 class MMTierSelect(discord.ui.Select):
@@ -79,12 +62,11 @@ class MMRequestView(discord.ui.View):
 
     @discord.ui.button(label="Request Middleman", emoji="🎫", style=discord.ButtonStyle.blurple, custom_id="btn_req_mm")
     async def request_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        msg_text = f"{interaction.user.mention} Select your middleman according to your trade."
-        await interaction.response.send_message(content=msg_text, view=DropdownView(), ephemeral=True)
+        await interaction.response.send_message(content=f"{interaction.user.mention} Select your middleman according to your trade.", view=DropdownView(), ephemeral=True)
 
 
 # =========================================================================
-# --- MODAL SUBMISSION & 1:1 BLAUES EMBED ---
+# --- MODAL SUBMISSION & 1:1 WEBHOOK GENERATION ---
 # =========================================================================
 
 class MMRequestModal(discord.ui.Modal, title="Middleman Request"):
@@ -92,9 +74,9 @@ class MMRequestModal(discord.ui.Modal, title="Middleman Request"):
         super().__init__()
         self.tier_name = tier_name
 
-    trader = discord.ui.TextInput(label="Who is your trade partner? (Name/ID)", placeholder="e.g. Kaizo", default="Kaizo", required=True)
-    giving = discord.ui.TextInput(label="What are you giving?", placeholder="e.g. Im trading 2 uni", required=True)
-    receiving = discord.ui.TextInput(label="What are they giving?", placeholder="e.g. He is giving me 1 venus fly trap", required=True)
+    trader_name = discord.ui.TextInput(label="Trade Partner Username", placeholder="e.g. Kaizo", required=True)
+    giving = discord.ui.TextInput(label="What are you giving?", placeholder="Im trading 2 uni", required=True)
+    receiving = discord.ui.TextInput(label="What are they giving?", placeholder="He is giving me 1 venus fly trap", required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
         guild = interaction.guild
@@ -108,110 +90,81 @@ class MMRequestModal(discord.ui.Modal, title="Middleman Request"):
         
         ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
         
-        # 1:1 Design aus Bild 1 - EXAKT BLAUES EMBED
-        embed = discord.Embed(color=discord.Color.blue())
-        embed.description = (
-            "### │ • **__Trade__** •\n\n"
-            f"**`[0]` {interaction.user.mention}'s side:**\n"
-            f"```\n{self.giving.value}\n```\n"
-            f"**`[87]` @{self.trader.value}'s side:**\n"
-            f"```\n{self.receiving.value}\n```"
-        )
+        # Versucht den Partner auf dem Server zu finden, um sein echtes Profilbild zu laden
+        partner = discord.utils.get(guild.members, name=self.trader_name.value) or \
+                  discord.utils.get(guild.members, display_name=self.trader_name.value)
         
-        # Sende zuerst den roten Löschbutton ganz oben drüber wie auf dem Screenshot
+        partner_avatar = partner.display_avatar.url if partner else interaction.user.display_avatar.url
+        partner_mention = partner.mention if partner else f"@{self.trader_name.value}"
+
+        # Sende den roten Delete Button ganz oben hin
         await ticket_channel.send(view=TopDeleteView())
-        # Sende danach die Trade-Box zusammen mit dem grünen Claim-System
-        await ticket_channel.send(embed=embed, view=TicketControlView())
+
+        # Erstellt einen temporären Webhook für das 1:1 Layout mit Profilbildern
+        webhook = await ticket_channel.create_webhook(name="Trade-Manager")
+
+        # 1. Großer Titel-Block
+        title_embed = discord.Embed(description="### │ • **__Trade__** •", color=discord.Color.blue())
+        await webhook.send(embed=title_embed, username="System", avatar_url=bot.user.display_avatar.url)
+
+        # 2. Deine Seite (Mit deinem Namen und deinem Avatar rechts)
+        user_embed = discord.Embed(description=f"**`[0]` {interaction.user.mention}'s side:**\n```\n{self.giving.value}\n```", color=discord.Color.blue())
+        user_embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        await webhook.send(embed=user_embed, username=interaction.user.display_name, avatar_url=interaction.user.display_avatar.url)
+
+        # 3. Die Partner-Seite (Mit Partner-Namen und Partner-Avatar rechts)
+        partner_embed = discord.Embed(description=f"**`[87]` {partner_mention}'s side:**\n```\n{self.receiving.value}\n```", color=discord.Color.blue())
+        partner_embed.set_thumbnail(url=partner_avatar)
+        
+        # Sende das letzte Embed zusammen mit der Kontrollleiste (Claim-Button)
+        await webhook.send(embed=partner_embed, username=self.trader_name.value, avatar_url=partner_avatar, view=TicketControlView())
+        
+        # Webhook löschen, da er nicht mehr gebraucht wird
+        await webhook.delete()
         await interaction.response.send_message(f"✅ Ticket created! Go to {ticket_channel.mention}", ephemeral=True)
 
 
 # =========================================================================
-# --- 1:1 PROFILE CARDS & CONTROLS ---
+# --- VIEWS & CONTROLS ---
 # =========================================================================
 
 class TopDeleteView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="Delete Ticket", emoji="❌", style=discord.ButtonStyle.red, custom_id="btn_top_delete_ticket")
+    def __init__(self): super().__init__(timeout=None)
+    @discord.ui.button(label="Delete Ticket", emoji="❌", style=discord.ButtonStyle.red, custom_id="btn_top_delete')
     async def top_delete(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("🔒 Closing channel...")
-        await asyncio.sleep(2)
         await interaction.channel.delete()
 
 class MiddlemanProfileLinks(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        # Exakte Reihenfolge und Farben der Knöpfe aus deinem Screenshot:
-        self.add_item(discord.ui.Button(label="w", style=discord.ButtonStyle.secondary, custom_id="m_w"))
-        self.add_item(discord.ui.Button(label="Ł altc", style=discord.ButtonStyle.primary, custom_id="m_ltc"))
-        self.add_item(discord.ui.Button(label="ash", style=discord.ButtonStyle.primary, custom_id="m_ash"))
-        self.add_item(discord.ui.Button(label="₮ ausdt", style=discord.ButtonStyle.success, custom_id="m_usdt"))
-        self.add_item(discord.ui.Button(label="☵ asol", style=discord.ButtonStyle.primary, custom_id="m_sol"))
-        self.add_item(discord.ui.Button(label="aeth", style=discord.ButtonStyle.primary, custom_id="m_eth"))
+        self.add_item(discord.ui.Button(label="w", style=discord.ButtonStyle.secondary))
+        self.add_item(discord.ui.Button(label="Ł altc", style=discord.ButtonStyle.primary))
+        self.add_item(discord.ui.Button(label="ash", style=discord.ButtonStyle.primary))
+        self.add_item(discord.ui.Button(label="₮ ausdt", style=discord.ButtonStyle.success))
+        self.add_item(discord.ui.Button(label="☵ asol", style=discord.ButtonStyle.primary))
+        self.add_item(discord.ui.Button(label="aeth", style=discord.ButtonStyle.primary))
 
 class TicketControlView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
+    def __init__(self): super().__init__(timeout=None)
 
     @discord.ui.button(label="Claim Ticket", style=discord.ButtonStyle.success, custom_id="btn_claim_ticket")
     async def claim(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.manage_channels:
-            await interaction.response.send_message("❌ Only Staff can claim this ticket.", ephemeral=True)
-            return
+        if not interaction.user.guild_permissions.manage_channels: return
         
         button.disabled = True
         await interaction.response.edit_message(view=self)
         
-        # 1. Benennt Kanal zu dem Namen des Middlemans um (z.B. ash)
         mm_short_name = interaction.user.display_name.lower().split()[0]
         await interaction.channel.edit(name=f"{mm_short_name}")
-        
-        # 2. Text-Meldung exakt wie im Bild
         await interaction.channel.send(content=f"{interaction.user.mention} is your middleman.")
         
-        # 3. 1:1 Blaues Profil-Embed des Middlemans
-        profile_embed = discord.Embed(
-            title=f"**{interaction.user.display_name}**", 
-            color=discord.Color.blue() # Exakt Blaues Embed links
-        )
-        profile_embed.description = (
-            f"## **{interaction.user.name}**\n\n"
-            f"**ID:** `{interaction.user.id}`\n"
-            f"**Rank:** <@&123456789012345678>" # <-- Hier deine Middleman Rollen-ID eintragen
-        )
-        
-        if interaction.user.avatar:
-            profile_embed.set_thumbnail(url=interaction.user.avatar.url)
+        profile_embed = discord.Embed(title=f"**{interaction.user.display_name}**", color=discord.Color.blue())
+        profile_embed.description = f"## **{interaction.user.name}**\n\n**ID:** `{interaction.user.id}`\n**Rank:** <@&123456789012345678>"
+        profile_embed.set_thumbnail(url=interaction.user.display_avatar.url)
             
         await interaction.channel.send(embed=profile_embed, view=MiddlemanProfileLinks())
 
-
-# =========================================================================
-# --- INITIAL SETUP ---
-# =========================================================================
-
-@bot.tree.command(name="setup_mmreq", description="Deploy initial request post")
-@app_commands.checks.has_permissions(administrator=True)
-async def deploy_mm_request(interaction: discord.Interaction):
-    embed = discord.Embed(color=discord.Color.blue()) # Auch die Haupt-Anzeige ist jetzt blau
-    embed.description = (
-        "### __Middleman Service__\n"
-        "✨ : *To request a middleman from this server, click the blue \"Request Middleman\" button on this message.*\n\n"
-        "### __How does middleman work?__\n"
-        "**× : Example: Trade is NFR Crow for Robux.**\n"
-        "1. Seller gives NFR Crow to middleman\n"
-        "2. Buyer pays seller robux (After middleman confirms receiving pet)\n"
-        "3. Middleman gives buyer NFR Crow (After seller confirmed receiving robux)\n\n"
-        "### __NOTES:__\n"
-        "1. ***You must both agree on the deal before using a middleman. Troll tickets will have consequences.***\n"
-        "2. ***Specify what you're trading (e.g. FR Frost Dragon in Adopt me > $20 USD LTC). Don't just put \"adopt me\" in the embed.***"
-    )
-    await interaction.channel.send(embed=embed, view=MMRequestView())
-    await interaction.response.send_message("🎯 Hub deployed!", ephemeral=True)
-
-# --- EXECUTE ---
+# --- RUN EXECUTION ---
 TOKEN = os.getenv("DISCORD_TOKEN", "DEIN_BOT_TOKEN")
-
 keep_alive()
 bot.run(TOKEN)
