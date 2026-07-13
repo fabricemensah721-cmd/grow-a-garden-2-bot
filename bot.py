@@ -32,9 +32,8 @@ class MainMMBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
         
     async def setup_hook(self):
-        # Hält die Interaktionen im Haupt-Kanal nach Restarts aktiv
         self.add_view(MMRequestView())
-        print("⚡ JMS Bot: 1:1 Ticket & Claim System vollständig aktiv.")
+        print("⚡ JMS Bot: 1:1 System mit blauen Embeds geladen.")
 
 bot = MainMMBot()
 
@@ -85,7 +84,7 @@ class MMRequestView(discord.ui.View):
 
 
 # =========================================================================
-# --- MODAL SUBMISSION & 1:1 EMBED GENERATION ---
+# --- MODAL SUBMISSION & 1:1 BLAUES EMBED ---
 # =========================================================================
 
 class MMRequestModal(discord.ui.Modal, title="Middleman Request"):
@@ -93,7 +92,7 @@ class MMRequestModal(discord.ui.Modal, title="Middleman Request"):
         super().__init__()
         self.tier_name = tier_name
 
-    trader = discord.ui.TextInput(label="Who is your trade partner? (Name/ID)", placeholder="e.g. Chainsaw", required=True)
+    trader = discord.ui.TextInput(label="Who is your trade partner? (Name/ID)", placeholder="e.g. Kaizo", default="Kaizo", required=True)
     giving = discord.ui.TextInput(label="What are you giving?", placeholder="e.g. Im trading 2 uni", required=True)
     receiving = discord.ui.TextInput(label="What are they giving?", placeholder="e.g. He is giving me 1 venus fly trap", required=True)
 
@@ -109,29 +108,41 @@ class MMRequestModal(discord.ui.Modal, title="Middleman Request"):
         
         ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
         
-        # 1:1 Design aus Bild 1 (Inhalt der Box)
-        embed = discord.Embed(color=discord.Color.from_rgb(47, 49, 54))
+        # 1:1 Design aus Bild 1 - EXAKT BLAUES EMBED
+        embed = discord.Embed(color=discord.Color.blue())
         embed.description = (
-            "## │ • **__Trade__** •\n\n"
+            "### │ • **__Trade__** •\n\n"
             f"**`[0]` {interaction.user.mention}'s side:**\n"
             f"```\n{self.giving.value}\n```\n"
             f"**`[87]` @{self.trader.value}'s side:**\n"
             f"```\n{self.receiving.value}\n```"
         )
         
-        # Sende die Trade-Box zusammen mit dem Claim & Delete System
+        # Sende zuerst den roten Löschbutton ganz oben drüber wie auf dem Screenshot
+        await ticket_channel.send(view=TopDeleteView())
+        # Sende danach die Trade-Box zusammen mit dem grünen Claim-System
         await ticket_channel.send(embed=embed, view=TicketControlView())
         await interaction.response.send_message(f"✅ Ticket created! Go to {ticket_channel.mention}", ephemeral=True)
 
 
 # =========================================================================
-# --- 1:1 ACTION BUTTONS AND DYNAMIC PROFILE CARDS ---
+# --- 1:1 PROFILE CARDS & CONTROLS ---
 # =========================================================================
+
+class TopDeleteView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Delete Ticket", emoji="❌", style=discord.ButtonStyle.red, custom_id="btn_top_delete_ticket")
+    async def top_delete(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("🔒 Closing channel...")
+        await asyncio.sleep(2)
+        await interaction.channel.delete()
 
 class MiddlemanProfileLinks(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        # Exakte Reihenfolge und Farben der Buttons unter der Profilkarte
+        # Exakte Reihenfolge und Farben der Knöpfe aus deinem Screenshot:
         self.add_item(discord.ui.Button(label="w", style=discord.ButtonStyle.secondary, custom_id="m_w"))
         self.add_item(discord.ui.Button(label="Ł altc", style=discord.ButtonStyle.primary, custom_id="m_ltc"))
         self.add_item(discord.ui.Button(label="ash", style=discord.ButtonStyle.primary, custom_id="m_ash"))
@@ -149,49 +160,41 @@ class TicketControlView(discord.ui.View):
             await interaction.response.send_message("❌ Only Staff can claim this ticket.", ephemeral=True)
             return
         
-        # Deaktiviert den Claim-Button nach Benutzung
         button.disabled = True
         await interaction.response.edit_message(view=self)
         
-        # 1. Ändert den Kanalnamen exakt in den Namen des Middlemans (z.B. "ash")
+        # 1. Benennt Kanal zu dem Namen des Middlemans um (z.B. ash)
         mm_short_name = interaction.user.display_name.lower().split()[0]
         await interaction.channel.edit(name=f"{mm_short_name}")
         
-        # 2. Text-Bestätigung senden
+        # 2. Text-Meldung exakt wie im Bild
         await interaction.channel.send(content=f"{interaction.user.mention} is your middleman.")
         
-        # 3. Profilkarte des Middlemans bauen (1:1 Abbild aus Bild 1 & 2)
+        # 3. 1:1 Blaues Profil-Embed des Middlemans
         profile_embed = discord.Embed(
-            title=f"## **{interaction.user.display_name}**", 
-            color=discord.Color.from_rgb(47, 49, 54)
+            title=f"**{interaction.user.display_name}**", 
+            color=discord.Color.blue() # Exakt Blaues Embed links
         )
         profile_embed.description = (
-            f"### **{interaction.user.name}**\n\n"
+            f"## **{interaction.user.name}**\n\n"
             f"**ID:** `{interaction.user.id}`\n"
-            f"**Rank:** <@&123456789012345678>" # <-- HIER DEINE MIDDLEMAN ROLLEN ID EINTRAGEN
+            f"**Rank:** <@&123456789012345678>" # <-- Hier deine Middleman Rollen-ID eintragen
         )
         
         if interaction.user.avatar:
             profile_embed.set_thumbnail(url=interaction.user.avatar.url)
             
-        # Sende die Profilkarte mit den farbigen Krypto-Buttons darunter
         await interaction.channel.send(embed=profile_embed, view=MiddlemanProfileLinks())
-
-    @discord.ui.button(label="Delete Ticket", style=discord.ButtonStyle.red, custom_id="btn_close_mm_ticket")
-    async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("🔒 Delete Ticket in progress... Closing in 3 seconds.")
-        await asyncio.sleep(3)
-        await interaction.channel.delete()
 
 
 # =========================================================================
-# --- CORE INITIALIZER COMMAND ---
+# --- INITIAL SETUP ---
 # =========================================================================
 
 @bot.tree.command(name="setup_mmreq", description="Deploy initial request post")
 @app_commands.checks.has_permissions(administrator=True)
 async def deploy_mm_request(interaction: discord.Interaction):
-    embed = discord.Embed(color=discord.Color.from_rgb(47, 49, 54))
+    embed = discord.Embed(color=discord.Color.blue()) # Auch die Haupt-Anzeige ist jetzt blau
     embed.description = (
         "### __Middleman Service__\n"
         "✨ : *To request a middleman from this server, click the blue \"Request Middleman\" button on this message.*\n\n"
@@ -207,7 +210,7 @@ async def deploy_mm_request(interaction: discord.Interaction):
     await interaction.channel.send(embed=embed, view=MMRequestView())
     await interaction.response.send_message("🎯 Hub deployed!", ephemeral=True)
 
-# --- START RUNTIME ---
+# --- EXECUTE ---
 TOKEN = os.getenv("DISCORD_TOKEN", "DEIN_BOT_TOKEN")
 
 keep_alive()
