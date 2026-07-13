@@ -16,7 +16,6 @@ def home():
     return "⚡ Jace MM Bot is Online and Active!"
 
 def run_server():
-    # Hosts the webserver on port 8080
     app.run(host='0.0.0.0', port=8080)
 
 def keep_alive():
@@ -33,14 +32,15 @@ class MainMMBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
         
     async def setup_hook(self):
+        # Registriert das Haupt-Panel permanent
         self.add_view(MMRequestView())
-        print("⚡ Main MM Bot Engine with Dropdown Tier Select loaded.")
+        print("⚡ Main MM Bot Engine geladen & Dropdown Fix aktiv.")
 
 bot = MainMMBot()
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name}")
+    print(f"Eingeloggt als {bot.user.name}")
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} Slash Commands.")
@@ -49,7 +49,7 @@ async def on_ready():
 
 
 # =========================================================================
-# --- THE DROPDOWN MENU SELECTION SYSTEM ---
+# --- THE FIX: DROPDOWN MENU SELECTION SYSTEM ---
 # =========================================================================
 
 class MMTierSelect(discord.ui.Select):
@@ -61,18 +61,21 @@ class MMTierSelect(discord.ui.Select):
             discord.SelectOption(label="Senior MM : Between 25k-50k RBX / $90-$160", value="senior_mm", description="Deals between 25k-50k Robux"),
             discord.SelectOption(label="Veteran MM : Between 50k-75k RBX / $160-$275", value="veteran_mm", description="Deals between 50k-75k Robux"),
             discord.SelectOption(label="Head MM : Between 75k-140k RBX / $275-$500", value="head_mm", description="Deals between 75k-140k Robux"),
-            discord.SelectOption(label="ADMIN : NO LIMIT", value="admin_mm", description="High-tier luxury or massive structural trades")
+            discord.SelectOption(label="ADMIN : NO LIMIT", value="admin_mm", description="High-tier trades / No Limits")
         ]
-        super().__init__(placeholder="Create Ticket", min_values=1, max_values=1, options=options, custom_id="dropdown_mm_tier")
+        # Eindeutige Custom-ID verhindert, dass Discord die Interaktion verliert
+        super().__init__(placeholder="Create Ticket", min_values=1, max_values=1, options=options, custom_id="persistent_mm_tier_select")
 
     async def callback(self, interaction: discord.Interaction):
+        # Findet den sauberen Namen der ausgewählten Rolle heraus
         selected_tier = self.values[0].replace("_", " ").title()
+        # Öffnet direkt das Modal-Fenster für den User
         await interaction.response.send_modal(MMRequestModal(tier_name=selected_tier))
 
 
 class DropdownView(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=60)
+        super().__init__(timeout=None) # Kein Timeout, damit der Button nicht abläuft
         self.add_item(MMTierSelect())
 
 
@@ -87,6 +90,7 @@ class MMRequestView(discord.ui.View):
     @discord.ui.button(label="Request Middleman", emoji="🎫", style=discord.ButtonStyle.blurple, custom_id="btn_req_mm")
     async def request_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
         msg_text = f"{interaction.user.mention} Select your middleman according to your trade."
+        # Sendet die korrigierte Dropdown-View
         await interaction.response.send_message(content=msg_text, view=DropdownView(), ephemeral=True)
 
 
@@ -203,6 +207,5 @@ async def deploy_mm_request(interaction: discord.Interaction):
 # --- EXECUTE BOTH WEB SERVER AND DISCORD PIPELINE ---
 TOKEN = os.getenv("DISCORD_TOKEN", "YOUR_MAIN_BOT_TOKEN")
 
-# Fires up the background thread for UptimeRobot monitoring before launching bot client
 keep_alive() 
 bot.run(TOKEN)
