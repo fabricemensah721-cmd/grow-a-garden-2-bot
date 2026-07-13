@@ -90,7 +90,7 @@ class MMRequestModal(discord.ui.Modal, title="Middleman Request"):
         
         ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
         
-        # Versucht den Partner auf dem Server zu finden, um sein echtes Profilbild zu laden
+        # Partner-Suche auf dem Server für Profilbilder
         partner = discord.utils.get(guild.members, name=self.trader_name.value) or \
                   discord.utils.get(guild.members, display_name=self.trader_name.value)
         
@@ -100,26 +100,25 @@ class MMRequestModal(discord.ui.Modal, title="Middleman Request"):
         # Sende den roten Delete Button ganz oben hin
         await ticket_channel.send(view=TopDeleteView())
 
-        # Erstellt einen temporären Webhook für das 1:1 Layout mit Profilbildern
+        # Erstellt den Webhook für das 1:1 Layout mit Profilbildern rechts
         webhook = await ticket_channel.create_webhook(name="Trade-Manager")
 
         # 1. Großer Titel-Block
         title_embed = discord.Embed(description="### │ • **__Trade__** •", color=discord.Color.blue())
         await webhook.send(embed=title_embed, username="System", avatar_url=bot.user.display_avatar.url)
 
-        # 2. Deine Seite (Mit deinem Namen und deinem Avatar rechts)
+        # 2. Deine Seite (Mit deinem Avatar rechts)
         user_embed = discord.Embed(description=f"**`[0]` {interaction.user.mention}'s side:**\n```\n{self.giving.value}\n```", color=discord.Color.blue())
         user_embed.set_thumbnail(url=interaction.user.display_avatar.url)
         await webhook.send(embed=user_embed, username=interaction.user.display_name, avatar_url=interaction.user.display_avatar.url)
 
-        # 3. Die Partner-Seite (Mit Partner-Namen und Partner-Avatar rechts)
+        # 3. Die Partner-Seite (Mit Partner-Avatar rechts)
         partner_embed = discord.Embed(description=f"**`[87]` {partner_mention}'s side:**\n```\n{self.receiving.value}\n```", color=discord.Color.blue())
         partner_embed.set_thumbnail(url=partner_avatar)
         
-        # Sende das letzte Embed zusammen mit der Kontrollleiste (Claim-Button)
+        # Sende das letzte Embed zusammen mit dem Claim-Button
         await webhook.send(embed=partner_embed, username=self.trader_name.value, avatar_url=partner_avatar, view=TicketControlView())
         
-        # Webhook löschen, da er nicht mehr gebraucht wird
         await webhook.delete()
         await interaction.response.send_message(f"✅ Ticket created! Go to {ticket_channel.mention}", ephemeral=True)
 
@@ -129,8 +128,10 @@ class MMRequestModal(discord.ui.Modal, title="Middleman Request"):
 # =========================================================================
 
 class TopDeleteView(discord.ui.View):
-    def __init__(self): super().__init__(timeout=None)
-    @discord.ui.button(label="Delete Ticket", emoji="❌", style=discord.ButtonStyle.red, custom_id="btn_top_delete')
+    def __init__(self): 
+        super().__init__(timeout=None)
+        
+    @discord.ui.button(label="Delete Ticket", emoji="❌", style=discord.ButtonStyle.red, custom_id="btn_top_delete_ticket")
     async def top_delete(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.channel.delete()
 
@@ -145,7 +146,8 @@ class MiddlemanProfileLinks(discord.ui.View):
         self.add_item(discord.ui.Button(label="aeth", style=discord.ButtonStyle.primary))
 
 class TicketControlView(discord.ui.View):
-    def __init__(self): super().__init__(timeout=None)
+    def __init__(self): 
+        super().__init__(timeout=None)
 
     @discord.ui.button(label="Claim Ticket", style=discord.ButtonStyle.success, custom_id="btn_claim_ticket")
     async def claim(self, interaction: discord.Interaction, button: discord.ui.Button):
