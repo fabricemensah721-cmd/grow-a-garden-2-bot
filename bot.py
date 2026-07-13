@@ -5,7 +5,25 @@ import os
 import asyncio
 import random
 import string
+from flask import Flask
+from threading import Thread
 
+# --- UPTIMEROBOT KEEP ALIVE SERVER ---
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "⚡ Jace MM Bot is Online and Active!"
+
+def run_server():
+    # Hosts the webserver on port 8080
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run_server)
+    t.start()
+
+# --- BOT SETUP ---
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -15,23 +33,51 @@ class MainMMBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
         
     async def setup_hook(self):
-        # Registriert die Buttons permanent, damit sie 24/7 aktiv bleiben
         self.add_view(MMRequestView())
-        print("⚡ Main MM & Vouch Bot Engine geladen.")
+        print("⚡ Main MM Bot Engine with Dropdown Tier Select loaded.")
 
 bot = MainMMBot()
 
 @bot.event
 async def on_ready():
-    print(f"Eingeloggt als {bot.user.name}")
+    print(f"Logged in as {bot.user.name}")
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} Slash Commands.")
     except Exception as e:
         print(f"Sync Error: {e}")
 
+
 # =========================================================================
-# --- 1:1 MIDDLEMAN REQUEST PANEL (SCREENSHOT MAP) ---
+# --- THE DROPDOWN MENU SELECTION SYSTEM ---
+# =========================================================================
+
+class MMTierSelect(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="Trial MM : Below 9k RBX / $32", value="trial_mm", description="Deals below 9,000 Robux or $32 USD"),
+            discord.SelectOption(label="Beginner MM : Between 9k-16k RBX / $32-$50", value="beginner_mm", description="Deals between 9k-16k Robux"),
+            discord.SelectOption(label="Middleman : Between 16k-25k RBX / $50-$90", value="middleman", description="Deals between 16k-25k Robux"),
+            discord.SelectOption(label="Senior MM : Between 25k-50k RBX / $90-$160", value="senior_mm", description="Deals between 25k-50k Robux"),
+            discord.SelectOption(label="Veteran MM : Between 50k-75k RBX / $160-$275", value="veteran_mm", description="Deals between 50k-75k Robux"),
+            discord.SelectOption(label="Head MM : Between 75k-140k RBX / $275-$500", value="head_mm", description="Deals between 75k-140k Robux"),
+            discord.SelectOption(label="ADMIN : NO LIMIT", value="admin_mm", description="High-tier luxury or massive structural trades")
+        ]
+        super().__init__(placeholder="Create Ticket", min_values=1, max_values=1, options=options, custom_id="dropdown_mm_tier")
+
+    async def callback(self, interaction: discord.Interaction):
+        selected_tier = self.values[0].replace("_", " ").title()
+        await interaction.response.send_modal(MMRequestModal(tier_name=selected_tier))
+
+
+class DropdownView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=60)
+        self.add_item(MMTierSelect())
+
+
+# =========================================================================
+# --- MAIN PANEL MESSAGES ---
 # =========================================================================
 
 class MMRequestView(discord.ui.View):
@@ -40,9 +86,19 @@ class MMRequestView(discord.ui.View):
 
     @discord.ui.button(label="Request Middleman", emoji="🎫", style=discord.ButtonStyle.blurple, custom_id="btn_req_mm")
     async def request_mm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(MMRequestModal())
+        msg_text = f"{interaction.user.mention} Select your middleman according to your trade."
+        await interaction.response.send_message(content=msg_text, view=DropdownView(), ephemeral=True)
+
+
+# =========================================================================
+# --- MODAL FORMAT AND WORKSPACE GENERATION ---
+# =========================================================================
 
 class MMRequestModal(discord.ui.Modal, title="Middleman Request"):
+    def __init__(self, tier_name: str):
+        super().__init__()
+        self.tier_name = tier_name
+
     trader = discord.ui.TextInput(label="Who is your trade partner? (Name/ID)", placeholder="e.g. Kaizo", required=True)
     giving = discord.ui.TextInput(label="What are you giving?", placeholder="e.g. NFR Crow", required=True)
     receiving = discord.ui.TextInput(label="What are they giving?", placeholder="e.g. 50$ LTC", required=True)
@@ -52,7 +108,6 @@ class MMRequestModal(discord.ui.Modal, title="Middleman Request"):
         random_id = "".join(random.choices(string.digits, k=4))
         channel_name = f"mm-{interaction.user.name.lower()}-{random_id}"
         
-        # Berechtigungen für das Ticket (Ersteller + Bot)
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True)
@@ -61,22 +116,17 @@ class MMRequestModal(discord.ui.Modal, title="Middleman Request"):
         ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
         
         embed = discord.Embed(
-            title="🎫 Middleman Ticket Opened",
-            description=f"Welcome {interaction.user.mention}. A staff member/middleman will be with you shortly.\nPlease wait patiently and do not ping multiple times.",
+            title=f"🎫 Middleman Ticket Opened ({self.tier_name})",
+            description=f"Welcome {interaction.user.mention}. A staff member/middleman belonging to the requested tier will be with you shortly.\nPlease wait patiently.",
             color=discord.Color.blue()
         )
         embed.add_field(name="User:", value=interaction.user.mention, inline=True)
         embed.add_field(name="Partner:", value=f"`{self.trader.value}`", inline=True)
         embed.add_field(name="Deal Details:", value=f"Giving: `{self.giving.value}`\nReceiving: `{self.receiving.value}`", inline=False)
         
-        # Sende Ticket-Steuerung (Schließen + Vouch-Option für später)
         await ticket_channel.send(embed=embed, view=TicketControlView())
         await interaction.response.send_message(f"✅ Ticket created! Please go to {ticket_channel.mention}", ephemeral=True)
 
-
-# =========================================================================
-# --- TICKET CONTROL & VOUCH INTERACTION ---
-# =========================================================================
 
 class TicketControlView(discord.ui.View):
     def __init__(self):
@@ -101,46 +151,37 @@ class TicketControlView(discord.ui.View):
         await asyncio.sleep(5)
         await interaction.channel.delete()
 
+
 class VouchModal(discord.ui.Modal, title="Submit a Vouch"):
     mm_user = discord.ui.TextInput(label="Middleman Name / Staff Name", placeholder="e.g. Jace", required=True)
     rating = discord.ui.TextInput(label="Rating (1-5 Stars)", placeholder="⭐⭐⭐⭐⭐", required=True)
-    comment = discord.ui.TextInput(label="Your Feedback / Comment", placeholder="Fast and safe middleman, smooth trade!", style=discord.TextStyle.paragraph, required=True)
+    comment = discord.ui.TextInput(label="Your Feedback / Comment", placeholder="Fast and safe middleman!", style=discord.TextStyle.paragraph, required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Versuche den Vouch-Kanal automatisch zu finden
         vouch_channel = discord.utils.get(interaction.guild.text_channels, name="vouches") or \
                         discord.utils.get(interaction.guild.text_channels, name="📈〢vouches")
                         
         if not vouch_channel:
-            await interaction.response.send_message("❌ Vouch channel could not be found. Please create #vouches first.", ephemeral=True)
+            await interaction.response.send_message("❌ Vouch channel could not be found.", ephemeral=True)
             return
             
-        embed = discord.Embed(
-            title="📈 New Success Vouch",
-            color=discord.Color.gold()
-        )
+        embed = discord.Embed(title="📈 New Success Vouch", color=discord.Color.gold())
         embed.add_field(name="Submitted By:", value=interaction.user.mention, inline=True)
         embed.add_field(name="Middleman Involved:", value=f"`{self.mm_user.value}`", inline=True)
         embed.add_field(name="Rating:", value=self.rating.value, inline=False)
         embed.add_field(name="Comment:", value=f"*{self.comment.value}*", inline=False)
-        embed.set_footer(text="Verified Jace MM Network Transaction")
         
         await vouch_channel.send(embed=embed)
-        await interaction.response.send_message("✅ Thank you! Your vouch has been published to the vouches channel.", ephemeral=True)
+        await interaction.response.send_message("✅ Your vouch has been published!", ephemeral=True)
 
 
 # =========================================================================
-# --- COMMAND TO DEPLOY THE 1:1 MM PANEL ---
+# --- COMMAND TO DEPLOY MAIN EMBED IN #mm-req ---
 # =========================================================================
 
 @bot.tree.command(name="setup_mmreq", description="Deploys the 1:1 manual Middleman Request panel into the channel")
 @app_commands.checks.has_permissions(administrator=True)
 async def deploy_mm_request(interaction: discord.Interaction):
-    # Findet den Link für #tos-crypto falls vorhanden
-    tos_channel = discord.utils.get(interaction.guild.text_channels, name="tos-crypto")
-    tos_mention = tos_channel.mention if tos_channel else "`#tos-crypto`"
-
-    # Erstellung der großen Markdowns in der Description für die 1:1 Optik
     embed = discord.Embed(color=discord.Color.from_rgb(47, 49, 54))
     embed.description = (
         "### __Middleman Service__\n"
@@ -159,6 +200,9 @@ async def deploy_mm_request(interaction: discord.Interaction):
     await interaction.response.send_message("🎯 Manual Middleman Request Hub deployed successfully!", ephemeral=True)
 
 
-# --- RUN THE BOT ---
-TOKEN = os.getenv("DISCORD_TOKEN", "DEIN_HAUPT_BOT_TOKEN")
+# --- EXECUTE BOTH WEB SERVER AND DISCORD PIPELINE ---
+TOKEN = os.getenv("DISCORD_TOKEN", "YOUR_MAIN_BOT_TOKEN")
+
+# Fires up the background thread for UptimeRobot monitoring before launching bot client
+keep_alive() 
 bot.run(TOKEN)
