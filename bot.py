@@ -87,8 +87,14 @@ class TicketView(View):
             interaction.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
 
+        # Kategorie abrufen
+        category_id = 1545686591719088201
+        category = interaction.guild.get_channel(category_id)
+
+        # Ticket in der Kategorie erstellen
         ticket_channel = await interaction.guild.create_text_channel(
             name=f"mm-ticket-{interaction.user.name}",
+            category=category,
             overwrites=overwrites
         )
 
