@@ -65,11 +65,17 @@ class TicketControlsView(View):
         
         button.disabled = True
         await interaction.message.edit(view=self)
-        await interaction.response.send_message(f"{interaction.user.mention} has claimed this ticket and will be your middleman.")
+        
+        # Embed für das Claimen des Tickets
+        embed = discord.Embed(color=discord.Color.blue())
+        embed.description = f"🛡️ {interaction.user.mention} has claimed this ticket and will be your middleman."
+        await interaction.response.send_message(embed=embed)
 
     @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.danger, custom_id="close_ticket")
     async def close_button(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_message("This ticket will be closed and deleted in 5 seconds...")
+        embed = discord.Embed(color=discord.Color.red())
+        embed.description = "🔒 This ticket will be closed and deleted in 5 seconds..."
+        await interaction.response.send_message(embed=embed)
         await asyncio.sleep(5)
         await interaction.channel.delete()
 
@@ -180,7 +186,9 @@ async def add(ctx, member: discord.Member):
 @bot.command()
 async def close(ctx):
     if "mm-ticket" in ctx.channel.name:
-        await ctx.send("This ticket will be closed and deleted in 5 seconds...")
+        embed = discord.Embed(color=discord.Color.red())
+        embed.description = "🔒 This ticket will be closed and deleted in 5 seconds..."
+        await ctx.send(embed=embed)
         await asyncio.sleep(5)
         await ctx.channel.delete()
 
