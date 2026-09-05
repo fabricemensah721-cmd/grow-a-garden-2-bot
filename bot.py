@@ -29,14 +29,18 @@ class VerifyView(View):
     @discord.ui.button(label="Accept", style=discord.ButtonStyle.green, custom_id="verify_accept")
     async def accept_button(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(color=discord.Color.green())
-        embed.description = f"✅ {interaction.user.mention} hat **akzeptiert**."
-        await interaction.response.send_message(embed=embed)
+        embed.description = f"✅ {interaction.user.mention} has **accepted**."
+        
+        # This edits the original message, replacing the embed and removing the buttons
+        await interaction.response.edit_message(content="", embed=embed, view=None)
 
     @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger, custom_id="verify_decline")
     async def decline_button(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(color=discord.Color.red())
-        embed.description = f"❌ {interaction.user.mention} hat **abgelehnt**."
-        await interaction.response.send_message(embed=embed)
+        embed.description = f"❌ {interaction.user.mention} has **declined**."
+        
+        # This edits the original message, replacing the embed and removing the buttons
+        await interaction.response.edit_message(content="", embed=embed, view=None)
 
 # --- 3. Ticket Controls (Claim & Close) ---
 class TicketControlsView(View):
