@@ -100,9 +100,10 @@ class TicketView(View):
 
         await interaction.response.send_message(f"Your ticket has been created: {ticket_channel.mention}", ephemeral=True)
 
+        # Ping für die Middleman/Staff-Rolle (ID 1545265078994215003)
         await ticket_channel.send(
             f"Welcome to your middleman ticket, {interaction.user.mention}!\n"
-            f"Please wait for a middleman to assist you.\n\n"
+            f"<@&1545265078994215003> - A new ticket has been opened.\n\n"
             f"**Commands:**\n"
             f"`!add @user` - Adds your trading partner to this ticket.",
             view=TicketControlsView()
@@ -165,9 +166,16 @@ async def add(ctx, member: discord.Member):
     if "mm-ticket" in ctx.channel.name:
         # Gibt dem Partner Rechte zum Lesen und Schreiben im Ticket
         await ctx.channel.set_permissions(member, read_messages=True, send_messages=True)
-        await ctx.send(f"{member.mention} has been added to the trade!")
+        
+        # Neues grünes Embed, wenn jemand geaddet wurde
+        embed = discord.Embed(color=discord.Color.green())
+        embed.description = f"✅ {member.mention} has been added to the trade!"
+        await ctx.send(embed=embed)
     else:
-        await ctx.send("This command can only be used inside a ticket!")
+        # Fehlermeldung als rotes Embed
+        embed = discord.Embed(color=discord.Color.red())
+        embed.description = "❌ This command can only be used inside a ticket!"
+        await ctx.send(embed=embed)
 
 @bot.command()
 async def close(ctx):
