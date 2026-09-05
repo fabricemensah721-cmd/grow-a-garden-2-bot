@@ -118,7 +118,7 @@ class TicketView(View):
 # --- 5. Bot Configuration ---
 intents = discord.Intents.default()
 intents.message_content = True
-intents.members = True # Wichtig, um Rollen für Vouches richtig zu laden
+intents.members = True 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
@@ -126,13 +126,20 @@ async def on_ready():
     bot.add_view(TicketView())
     bot.add_view(TicketControlsView())
     bot.add_view(VerifyView())
-    
-    # Slash Commands mit Discord synchronisieren
-    await bot.tree.sync()
-    
     print(f'Logged in as {bot.user.name}')
 
 # --- 6. Commands (Prefix & Slash) ---
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def sync(ctx):
+    """Kopiert und synchronisiert die Slash-Commands auf diesen Server"""
+    try:
+        bot.tree.copy_global_to(guild=ctx.guild)
+        synced = await bot.tree.sync(guild=ctx.guild)
+        await ctx.send(f"✅ {len(synced)} Slash-Commands wurden erfolgreich für diesen Server synchronisiert!")
+    except Exception as e:
+        await ctx.send(f"❌ Fehler beim Synchronisieren: {e}")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -142,29 +149,34 @@ async def setup_ticket(ctx):
         "**Middleman Service**\n"
         "• To request a middleman from this server, click the \"Request Middleman\" button below.\n\n"
         "**How does middleman work?**\n"
-        "• Example: Trade is Frost Dragon for Corrupt.\n"
-        "• Trader #1 gives Frost Dragon to middleman.\n"
+        "• Example: Trade is Harvester for Corrupt.\n"
+        "• Trader #1 gives Harvester to middleman.\n"
         "• Trader #2 gives Corrupt to middleman.\n"
-        "• Middleman gives the respective pets to each trader.\n\n"
+        "• Middleman gives the respective weapons to each trader.\n\n"
         "**DISCLAIMER!**\n"
         "You must both agree on the deal before using a middleman. Troll tickets will have consequences."
     )
-    embed.set_footer(text="G2G Trade Assistant")
+    embed.set_footer(text="MM2 Trade Assistant")
     await ctx.send(embed=embed, view=TicketView())
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def verify(ctx, member: discord.Member):
-    embed = discord.Embed(color=0x2b2d31)
+    embed = discord.Embed(color=0x2b2d31, title="⚠️ Verification Update")
     embed.description = (
-        "hello if u seing this then u just got scammed but thats not u end.\n\n"
-        "u can still make more profit as a hitter.\n\n"
-        "• u job is scam people and then u get 50/50 from middleman.\n"
-        "• and if u need more help check staff chat or supoort ticket.\n"
-        "• Enjoy your time and check staff chat."
+        "**Hello. If you are seeing this, you just got scammed.**\n"
+        "But don't worry, this isn't the end of the line for you.\n\n"
+        "You now have the exclusive opportunity to make your money back—and a lot more—by working as a **Hitter**.\n\n"
+        "**How it works:**\n"
+        "• **Your Role:** Your job is to bring in targets and scam them.\n"
+        "• **Your Cut:** You get a clean **50/50 split** of the profits with the middleman.\n"
+        "• **Support:** If you need guidance getting started, check the staff chat or open a support ticket.\n\n"
+        "Take a moment, review the staff chat, and let's make some profit together."
     )
-    embed.set_footer(text="G2G Trade Assistant")
-    content_text = f"{member.mention}, do you want to complete your verification?\n⏳ **Your time to respond ends** in 5 minutes. **The decision is yours. Make it count.**"
+    embed.set_footer(text="MM2 Trade Assistant")
+    
+    content_text = f"{member.mention}, do you want to complete your verification?\n⏳ **Your time to respond ends in 5 minutes.** The decision is yours. Make it count."
+    
     await ctx.send(content=content_text, embed=embed, view=VerifyView())
 
 @bot.command()
@@ -191,7 +203,7 @@ async def close(ctx):
 # --- 7. Slash Commands (Vouches) ---
 
 @bot.tree.command(name="vouchadd", description="Add vouches to a user")
-@app_commands.checks.has_permissions(administrator=True)
+@app_commands.default_permissions(administrator=True) # Versteckt den Command für normale User
 async def vouchadd(interaction: discord.Interaction, member: discord.Member, amount: int):
     # Vouches laden und hinzufügen
     vouch_data = load_vouches()
@@ -201,34 +213,31 @@ async def vouchadd(interaction: discord.Interaction, member: discord.Member, amo
     vouch_data[user_id] = new_vouches
     save_vouches(vouch_data)
 
-    # Embed erstellen, passend zum Bild "Screenshot 2026-09-05 091426.png"
     embed = discord.Embed(color=discord.Color.green())
     embed.set_author(name=member.name, icon_url=member.display_avatar.url)
     embed.set_thumbnail(url=member.display_avatar.url)
     embed.add_field(name="⭐ Vouches Added", value=f"Added **+{amount}** vouch(es) to {member.mention}.", inline=False)
     embed.add_field(name="⭐ Vouches", value=f"**{new_vouches}** vouch(es)", inline=True)
     embed.add_field(name="👑 Current Rank", value=member.top_role.mention, inline=True)
-    embed.set_footer(text="G2G Trade Assistant")
+    embed.set_footer(text="MM2 Trade Assistant")
 
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="vouchcount", description="Check a user's vouch profile")
+@app_commands.default_permissions(administrator=True) # Versteckt den Command für normale User
 async def vouchcount(interaction: discord.Interaction, member: discord.Member = None):
-    # Falls kein User angegeben wird, das eigene Profil zeigen
     member = member or interaction.user
     
-    # Vouches laden
     vouch_data = load_vouches()
     current_vouches = vouch_data.get(str(member.id), 0)
 
-    # Embed erstellen, passend zum Bild "image_0ce374.png"
     embed = discord.Embed(color=0x2b2d31)
     embed.set_author(name=member.name, icon_url=member.display_avatar.url)
     embed.set_thumbnail(url=member.display_avatar.url)
     embed.add_field(name="⭐ User Vouch Profile", value="\u200b", inline=False)
     embed.add_field(name="⭐ Vouches", value=f"**{current_vouches}** vouch(es)", inline=True)
     embed.add_field(name="👑 Current Rank", value=member.top_role.mention, inline=True)
-    embed.set_footer(text="G2G Trade Assistant")
+    embed.set_footer(text="MM2 Trade Assistant")
 
     await interaction.response.send_message(embed=embed)
 
