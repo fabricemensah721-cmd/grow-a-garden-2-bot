@@ -1,5 +1,7 @@
 import os
 import json
+import time
+from collections import defaultdict
 from flask import Flask
 from threading import Thread
 import discord
@@ -48,7 +50,7 @@ class VerifyView(View):
             try:
                 await interaction.user.add_roles(role)
             except discord.Forbidden:
-                print("Fehler: Der Bot hat keine Berechtigung, diese Rolle zu vergeben.")
+                pass
         
         embed = discord.Embed(color=discord.Color.green())
         embed.description = f"✅ {interaction.user.mention} has **accepted** and received the Member role."
@@ -128,18 +130,97 @@ async def on_ready():
     bot.add_view(VerifyView())
     print(f'Logged in as {bot.user.name}')
 
-# --- 6. Commands (Prefix & Slash) ---
+# --- 6. ANTI-NUKE SYSTEM ---
+nuke_tracker = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+TIME_WINDOW = 60 # Check actions within the last 60 seconds
+
+LIMITS = {
+    'channel_delete': 3,
+    'channel_create': 5,
+    'role_delete': 3,
+    'role_create': 5,
+    'ban': 4
+}
+
+async def get_audit_actor(guild, action_type):
+    """Fetches the user who performed the latest audit log action."""
+    try:
+        async for entry in guild.audit_logs(limit=1, action=action_type):
+            return entry.user
+    except discord.Forbidden:
+        return None
+
+async def check_nuke(guild, user, action_type):
+    if user is None: return
+    if user.id == bot.user.id or user.id == guild.owner_id:
+        return # Skip the bot itself and the server owner
+
+    now = time.time()
+    # Clean up old actions outside the time window
+    timestamps = nuke_tracker[guild.id][user.id][action_type]
+    timestamps = [t for t in timestamps if now - t < TIME_WINDOW]
+    timestamps.append(now)
+    nuke_tracker[guild.id][user.id][action_type] = timestamps
+
+    # Check if the user exceeded the limit
+    if len(timestamps) > LIMITS[action_type]:
+        try:
+            # BAN THE NUKER
+            await guild.ban(user, reason=f"Anti-Nuke System Triggered: Exceeded {action_type} limit.")
+            
+            # NOTIFY SERVER OWNER
+            try:
+                embed = discord.Embed(title="🚨 ANTI-NUKE TRIGGERED", color=discord.Color.red())
+                embed.description = (
+                    f"**Server:** {guild.name}\n"
+                    f"**Action:** The bot has banned {user.mention} (`{user.id}`).\n"
+                    f"**Reason:** Exceeded the limit for `{action_type}` (Time window: {TIME_WINDOW}s).\n"
+                    f"**Status:** Threat neutralized."
+                )
+                await guild.owner.send(embed=embed)
+            except discord.Forbidden:
+                pass # Owner has DMs disabled
+                
+        except discord.Forbidden:
+            print(f"Anti-Nuke: Failed to ban {user.name} (Missing permissions or user role is higher than bot).")
+
+@bot.event
+async def on_guild_channel_delete(channel):
+    actor = await get_audit_actor(channel.guild, discord.AuditLogAction.channel_delete)
+    await check_nuke(channel.guild, actor, 'channel_delete')
+
+@bot.event
+async def on_guild_channel_create(channel):
+    actor = await get_audit_actor(channel.guild, discord.AuditLogAction.channel_create)
+    await check_nuke(channel.guild, actor, 'channel_create')
+
+@bot.event
+async def on_guild_role_delete(role):
+    actor = await get_audit_actor(role.guild, discord.AuditLogAction.role_delete)
+    await check_nuke(role.guild, actor, 'role_delete')
+
+@bot.event
+async def on_guild_role_create(role):
+    actor = await get_audit_actor(role.guild, discord.AuditLogAction.role_create)
+    await check_nuke(role.guild, actor, 'role_create')
+
+@bot.event
+async def on_member_ban(guild, user):
+    actor = await get_audit_actor(guild, discord.AuditLogAction.ban)
+    await check_nuke(guild, actor, 'ban')
+
+# --- 7. General Commands ---
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def sync(ctx):
-    """Kopiert und synchronisiert die Slash-Commands auf diesen Server"""
+    """Syncs slash commands to the current server immediately."""
     try:
         bot.tree.copy_global_to(guild=ctx.guild)
         synced = await bot.tree.sync(guild=ctx.guild)
-        await ctx.send(f"✅ {len(synced)} Slash-Commands wurden erfolgreich für diesen Server synchronisiert!")
+        await ctx.send(f"✅ {len(synced)} Slash-Commands were successfully synced to this server!")
     except Exception as e:
-        await ctx.send(f"❌ Fehler beim Synchronisieren: {e}")
+        await ctx.send(f"❌ Error syncing commands: {e}")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -200,12 +281,11 @@ async def close(ctx):
         await asyncio.sleep(5)
         await ctx.channel.delete()
 
-# --- 7. Slash Commands (Vouches) ---
+# --- 8. Slash Commands (Vouches) ---
 
 @bot.tree.command(name="vouchadd", description="Add vouches to a user")
-@app_commands.default_permissions(administrator=True) # Versteckt den Command für normale User
+@app_commands.default_permissions(administrator=True) 
 async def vouchadd(interaction: discord.Interaction, member: discord.Member, amount: int):
-    # Vouches laden und hinzufügen
     vouch_data = load_vouches()
     user_id = str(member.id)
     current_vouches = vouch_data.get(user_id, 0)
@@ -224,7 +304,7 @@ async def vouchadd(interaction: discord.Interaction, member: discord.Member, amo
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="vouchcount", description="Check a user's vouch profile")
-@app_commands.default_permissions(administrator=True) # Versteckt den Command für normale User
+@app_commands.default_permissions(administrator=True) 
 async def vouchcount(interaction: discord.Interaction, member: discord.Member = None):
     member = member or interaction.user
     
@@ -241,7 +321,7 @@ async def vouchcount(interaction: discord.Interaction, member: discord.Member = 
 
     await interaction.response.send_message(embed=embed)
 
-# --- 8. Start ---
+# --- 9. Start ---
 keep_alive()
 token = os.environ.get("DISCORD_TOKEN")
 bot.run(token)
