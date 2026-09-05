@@ -28,14 +28,29 @@ class VerifyView(View):
 
     @discord.ui.button(label="Accept", style=discord.ButtonStyle.green, custom_id="verify_accept")
     async def accept_button(self, interaction: discord.Interaction, button: Button):
+        # Die ID deiner Member-Rolle
+        role_id = 1545265096484458527
+        role = interaction.guild.get_role(role_id)
+        
+        # Versuchen, die Rolle zu vergeben
+        if role:
+            try:
+                await interaction.user.add_roles(role)
+            except discord.Forbidden:
+                print("Fehler: Der Bot hat keine Berechtigung, diese Rolle zu vergeben.")
+        
+        # Nachricht aktualisieren und Buttons entfernen
         embed = discord.Embed(color=discord.Color.green())
-        embed.description = f"✅ {interaction.user.mention} has **accepted**."
+        embed.description = f"✅ {interaction.user.mention} has **accepted** and received the Member role."
+        
         await interaction.response.edit_message(content="", embed=embed, view=None)
 
     @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger, custom_id="verify_decline")
     async def decline_button(self, interaction: discord.Interaction, button: Button):
+        # Nachricht aktualisieren und Buttons entfernen
         embed = discord.Embed(color=discord.Color.red())
         embed.description = f"❌ {interaction.user.mention} has **declined**."
+        
         await interaction.response.edit_message(content="", embed=embed, view=None)
 
 # --- 3. Ticket Controls (Claim & Close) ---
@@ -45,7 +60,7 @@ class TicketControlsView(View):
 
     @discord.ui.button(label="Claim Ticket", style=discord.ButtonStyle.primary, custom_id="claim_ticket")
     async def claim_button(self, interaction: discord.Interaction, button: Button):
-        # Allow only the claiming user to send messages in this channel
+        # Erlaubt dem Claimer das Schreiben in diesem Channel
         await interaction.channel.set_permissions(interaction.user, read_messages=True, send_messages=True)
         
         button.disabled = True
@@ -65,7 +80,7 @@ class TicketView(View):
 
     @discord.ui.button(label="Request Middleman", style=discord.ButtonStyle.green, custom_id="open_ticket")
     async def ticket_button(self, interaction: discord.Interaction, button: Button):
-        # Default permissions: Ticket creator can speak, everyone else can only view (until claimed or added)
+        # Standardrechte: User, der das Ticket öffnet, darf lesen/schreiben. Alle anderen nichts.
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False, send_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -142,6 +157,7 @@ async def verify(ctx, member: discord.Member):
 @bot.command()
 async def add(ctx, member: discord.Member):
     if "mm-ticket" in ctx.channel.name:
+        # Gibt dem Partner Rechte zum Lesen und Schreiben im Ticket
         await ctx.channel.set_permissions(member, read_messages=True, send_messages=True)
         await ctx.send(f"{member.mention} has been added to the trade!")
     else:
