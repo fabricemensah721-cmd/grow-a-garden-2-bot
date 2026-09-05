@@ -21,12 +21,34 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# --- 2. Ticket System (Button & Panel) ---
+# --- 2. Ticket Controls (Claim & Close Buttons inside the ticket) ---
+class TicketControlsView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    # Claim Button (Blue)
+    @discord.ui.button(label="Claim Ticket", style=discord.ButtonStyle.primary, custom_id="claim_ticket")
+    async def claim_button(self, interaction: discord.Interaction, button: Button):
+        # Disable the button after it's clicked
+        button.disabled = True
+        await interaction.message.edit(view=self)
+        
+        # Announce the middleman
+        await interaction.response.send_message(f"{interaction.user.mention} has claimed this ticket and will be your middleman.")
+
+    # Close Button (Red)
+    @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.danger, custom_id="close_ticket")
+    async def close_button(self, interaction: discord.Interaction, button: Button):
+        await interaction.response.send_message("This ticket will be closed and deleted in 5 seconds...")
+        await asyncio.sleep(5)
+        await interaction.channel.delete()
+
+# --- 3. Ticket Setup (Main Panel) ---
 class TicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    # Green button without emojis
+    # Green Request Button
     @discord.ui.button(label="Request Middleman", style=discord.ButtonStyle.green, custom_id="open_ticket")
     async def ticket_button(self, interaction: discord.Interaction, button: Button):
         overwrites = {
@@ -42,31 +64,32 @@ class TicketView(View):
 
         await interaction.response.send_message(f"Your ticket has been created: {ticket_channel.mention}", ephemeral=True)
 
+        # Send welcome message WITH the new Claim & Close buttons
         await ticket_channel.send(
             f"Welcome to your middleman ticket, {interaction.user.mention}!\n"
             f"Please wait for a middleman to assist you.\n\n"
             f"**Commands:**\n"
-            f"`!add @user` - Adds your trading partner to this ticket.\n"
-            f"`!close` - Closes and deletes this ticket."
+            f"`!add @user` - Adds your trading partner to this ticket.",
+            view=TicketControlsView()
         )
 
-# --- 3. Bot Configuration ---
+# --- 4. Bot Configuration ---
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
+    # Register both button views so they work after restarts
     bot.add_view(TicketView())
+    bot.add_view(TicketControlsView())
     print(f'Logged in as {bot.user.name}')
 
-# --- 4. Commands ---
-
+# --- 5. Commands ---
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def setup_ticket(ctx):
-    # Creating the exact embed from your image
-    embed = discord.Embed(color=0x2b2d31) # Dark theme color
+    embed = discord.Embed(color=0x2b2d31)
     embed.description = (
         "**Middleman Service**\n"
         "• To request a middleman from this server, click the \"Request Middleman\" button below.\n\n"
@@ -90,16 +113,15 @@ async def add(ctx, member: discord.Member):
     else:
         await ctx.send("This command can only be used inside a ticket!")
 
+# Fallback close command just in case
 @bot.command()
 async def close(ctx):
     if "mm-ticket" in ctx.channel.name:
         await ctx.send("This ticket will be closed and deleted in 5 seconds...")
         await asyncio.sleep(5)
         await ctx.channel.delete()
-    else:
-        await ctx.send("You can only close tickets!")
 
-# --- 5. Start ---
+# --- 6. Start ---
 keep_alive()
 token = os.environ.get("DISCORD_TOKEN")
 bot.run(token)
