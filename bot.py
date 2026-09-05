@@ -28,11 +28,15 @@ class VerifyView(View):
 
     @discord.ui.button(label="Accept", style=discord.ButtonStyle.green, custom_id="verify_accept")
     async def accept_button(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_message("Verification accepted successfully!", ephemeral=True)
+        embed = discord.Embed(color=discord.Color.green())
+        embed.description = f"✅ {interaction.user.mention} hat **akzeptiert**."
+        await interaction.response.send_message(embed=embed)
 
     @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger, custom_id="verify_decline")
     async def decline_button(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_message("Verification declined.", ephemeral=True)
+        embed = discord.Embed(color=discord.Color.red())
+        embed.description = f"❌ {interaction.user.mention} hat **abgelehnt**."
+        await interaction.response.send_message(embed=embed)
 
 # --- 3. Ticket Controls (Claim & Close) ---
 class TicketControlsView(View):
@@ -113,20 +117,17 @@ async def setup_ticket(ctx):
 
     await ctx.send(embed=embed, view=TicketView())
 
-# Verify Command (Normal & Professional)
+# Verify Command
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def verify(ctx, member: discord.Member):
     embed = discord.Embed(color=0x2b2d31)
     embed.description = (
-        "**Verification Required**\n"
-        f"Target: {member.mention}\n\n"
         "hello if u seing this then u just got scammed but thats not u end.\n\n"
         "u can still make more profit as a hitter.\n\n"
         "• u job is scam people and then u get 50/50 from middleman.\n"
         "• and if u need more help check staff chat or supoort ticket.\n"
-        "• Enjoy your time and check staff chat.\n\n"
-        
+        "• Enjoy your time and check staff chat."
     )
     embed.set_footer(text="Trade Assistant")
 
