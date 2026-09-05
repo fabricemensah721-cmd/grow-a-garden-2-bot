@@ -25,7 +25,7 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# --- 1.5 Vouch Storage System ---
+# --- 1.5 Storage System (Vouches & Temp Roles) ---
 def load_vouches():
     try:
         with open("vouches.json", "r") as f:
@@ -35,6 +35,17 @@ def load_vouches():
 
 def save_vouches(data):
     with open("vouches.json", "w") as f:
+        json.dump(data, f)
+
+def load_temp_roles():
+    try:
+        with open("temp_roles.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+def save_temp_roles(data):
+    with open("temp_roles.json", "w") as f:
         json.dump(data, f)
 
 # --- 2. Verify / Approval Buttons ---
@@ -98,7 +109,8 @@ class TicketView(View):
             interaction.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
 
-        category_id = 1545686591719088201
+        # Ticket Kategorie
+        category_id = 1545697830151258174
         category = interaction.guild.get_channel(category_id)
 
         ticket_channel = await interaction.guild.create_text_channel(
@@ -143,7 +155,6 @@ LIMITS = {
 }
 
 async def get_audit_actor(guild, action_type):
-    """Fetches the user who performed the latest audit log action."""
     try:
         async for entry in guild.audit_logs(limit=1, action=action_type):
             return entry.user
@@ -153,22 +164,17 @@ async def get_audit_actor(guild, action_type):
 async def check_nuke(guild, user, action_type):
     if user is None: return
     if user.id == bot.user.id or user.id == guild.owner_id:
-        return # Skip the bot itself and the server owner
+        return 
 
     now = time.time()
-    # Clean up old actions outside the time window
     timestamps = nuke_tracker[guild.id][user.id][action_type]
     timestamps = [t for t in timestamps if now - t < TIME_WINDOW]
     timestamps.append(now)
     nuke_tracker[guild.id][user.id][action_type] = timestamps
 
-    # Check if the user exceeded the limit
     if len(timestamps) > LIMITS[action_type]:
         try:
-            # BAN THE NUKER
             await guild.ban(user, reason=f"Anti-Nuke System Triggered: Exceeded {action_type} limit.")
-            
-            # NOTIFY SERVER OWNER
             try:
                 embed = discord.Embed(title="🚨 ANTI-NUKE TRIGGERED", color=discord.Color.red())
                 embed.description = (
@@ -179,10 +185,9 @@ async def check_nuke(guild, user, action_type):
                 )
                 await guild.owner.send(embed=embed)
             except discord.Forbidden:
-                pass # Owner has DMs disabled
-                
+                pass 
         except discord.Forbidden:
-            print(f"Anti-Nuke: Failed to ban {user.name} (Missing permissions or user role is higher than bot).")
+            pass
 
 @bot.event
 async def on_guild_channel_delete(channel):
@@ -214,7 +219,6 @@ async def on_member_ban(guild, user):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def sync(ctx):
-    """Syncs slash commands to the current server immediately."""
     try:
         bot.tree.copy_global_to(guild=ctx.guild)
         synced = await bot.tree.sync(guild=ctx.guild)
@@ -281,7 +285,7 @@ async def close(ctx):
         await asyncio.sleep(5)
         await ctx.channel.delete()
 
-# --- 8. Slash Commands (Vouches) ---
+# --- 8. Slash Commands (Vouches, Fill, Temp) ---
 
 @bot.tree.command(name="vouchadd", description="Add vouches to a user")
 @app_commands.default_permissions(administrator=True) 
@@ -319,6 +323,106 @@ async def vouchcount(interaction: discord.Interaction, member: discord.Member = 
     embed.add_field(name="👑 Current Rank", value=member.top_role.mention, inline=True)
     embed.set_footer(text="MM2 Trade Assistant")
 
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="fill", description="Gives a user all missing roles")
+@app_commands.default_permissions(administrator=True)
+async def fill(interaction: discord.Interaction, member: discord.Member):
+    roles_to_add = []
+    
+    for role in interaction.guild.roles:
+        # Überspringe @everyone, Bot-Rollen (managed) und Rollen, die höher als der Bot sind
+        if role.name == "@everyone" or role.managed or role >= interaction.guild.me.top_role:
+            continue
+        if role not in member.roles:
+            roles_to_add.append(role)
+            
+    if not roles_to_add:
+        await interaction.response.send_message("❌ User already has all possible roles.", ephemeral=True)
+        return
+
+    await member.add_roles(*roles_to_add, reason="Fill command triggered")
+    
+    role_mentions = ", ".join([r.mention for r in roles_to_add])
+    if len(role_mentions) > 3900:
+        role_mentions = role_mentions[:3900] + "... and more."
+
+    embed = discord.Embed(color=discord.Color.green(), title="Roles Filled")
+    embed.description = f"🛠️ Added **{len(roles_to_add)}** role(s) to {member.mention}:\n\n{role_mentions}"
+    embed.set_footer(text="MM2 Trade Assistant")
+    
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="temp", description="Temporarily removes roles (saves them)")
+@app_commands.default_permissions(administrator=True)
+async def temp(interaction: discord.Interaction, member: discord.Member):
+    roles_to_remove = []
+    protected_roles = [1545265096484458527, 1545265093489463337] # Member und Giveaway
+    saved_role_ids = []
+    
+    for role in member.roles:
+        # Behalte @everyone, Bot-Rollen, geschützte Rollen und unantastbare Rollen
+        if role.name == "@everyone" or role.managed or role.id in protected_roles or role >= interaction.guild.me.top_role:
+            continue
+        
+        roles_to_remove.append(role)
+        saved_role_ids.append(role.id)
+        
+    if not roles_to_remove:
+        await interaction.response.send_message("❌ No removable roles found.", ephemeral=True)
+        return
+
+    # Speichern für /restore
+    temp_data = load_temp_roles()
+    temp_data[str(member.id)] = saved_role_ids
+    save_temp_roles(temp_data)
+
+    await member.remove_roles(*roles_to_remove, reason="Temp command triggered")
+    
+    role_mentions = ", ".join([r.mention for r in roles_to_remove])
+    if len(role_mentions) > 3900:
+        role_mentions = role_mentions[:3900] + "... and more."
+    
+    embed = discord.Embed(color=discord.Color.red(), title="Roles Removed")
+    embed.description = f"🛠️ Removed **{len(roles_to_remove)}** role(s) from {member.mention}:\n\n{role_mentions}"
+    embed.set_footer(text="MM2 Trade Assistant")
+    
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="restore", description="Restores roles removed by /temp")
+@app_commands.default_permissions(administrator=True)
+async def restore(interaction: discord.Interaction, member: discord.Member):
+    temp_data = load_temp_roles()
+    user_id = str(member.id)
+    
+    if user_id not in temp_data or not temp_data[user_id]:
+        await interaction.response.send_message("❌ No saved roles found for this user.", ephemeral=True)
+        return
+
+    roles_to_add = []
+    for role_id in temp_data[user_id]:
+        role = interaction.guild.get_role(role_id)
+        if role and role not in member.roles:
+            roles_to_add.append(role)
+
+    if not roles_to_add:
+        await interaction.response.send_message("❌ User already has all their saved roles.", ephemeral=True)
+        return
+
+    await member.add_roles(*roles_to_add, reason="Restore command triggered")
+    
+    # Rolle aus dem Speicher löschen
+    del temp_data[user_id]
+    save_temp_roles(temp_data)
+
+    role_mentions = ", ".join([r.mention for r in roles_to_add])
+    if len(role_mentions) > 3900:
+        role_mentions = role_mentions[:3900] + "... and more."
+
+    embed = discord.Embed(color=discord.Color.blue(), title="Roles Restored")
+    embed.description = f"🛠️ Restored **{len(roles_to_add)}** role(s) to {member.mention}:\n\n{role_mentions}"
+    embed.set_footer(text="MM2 Trade Assistant")
+    
     await interaction.response.send_message(embed=embed)
 
 # --- 9. Start ---
