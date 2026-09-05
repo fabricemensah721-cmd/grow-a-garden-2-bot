@@ -325,23 +325,29 @@ async def vouchcount(interaction: discord.Interaction, member: discord.Member = 
 
     await interaction.response.send_message(embed=embed)
 
+
 @bot.tree.command(name="fill", description="Gives a user all missing roles")
 @app_commands.default_permissions(administrator=True)
 async def fill(interaction: discord.Interaction, member: discord.Member):
-    roles_to_add = []
+    # Dem Bot mehr Zeit als 3 Sekunden geben
+    await interaction.response.defer()
     
+    roles_to_add = []
     for role in interaction.guild.roles:
-        # Überspringe @everyone, Bot-Rollen (managed) und Rollen, die höher als der Bot sind
         if role.name == "@everyone" or role.managed or role >= interaction.guild.me.top_role:
             continue
         if role not in member.roles:
             roles_to_add.append(role)
             
     if not roles_to_add:
-        await interaction.response.send_message("❌ User already has all possible roles.", ephemeral=True)
+        await interaction.followup.send("❌ User already has all possible roles.")
         return
 
-    await member.add_roles(*roles_to_add, reason="Fill command triggered")
+    try:
+        await member.add_roles(*roles_to_add, reason="Fill command triggered")
+    except discord.Forbidden:
+        await interaction.followup.send("❌ **Fehler:** Ich habe nicht die Berechtigung, diese Rollen zu verteilen. Bitte schiebe meine Bot-Rolle in den Server-Einstellungen ganz nach oben!")
+        return
     
     role_mentions = ", ".join([r.mention for r in roles_to_add])
     if len(role_mentions) > 3900:
@@ -351,17 +357,20 @@ async def fill(interaction: discord.Interaction, member: discord.Member):
     embed.description = f"🛠️ Added **{len(roles_to_add)}** role(s) to {member.mention}:\n\n{role_mentions}"
     embed.set_footer(text="MM2 Trade Assistant")
     
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
+
 
 @bot.tree.command(name="temp", description="Temporarily removes roles (saves them)")
 @app_commands.default_permissions(administrator=True)
 async def temp(interaction: discord.Interaction, member: discord.Member):
+    # Dem Bot mehr Zeit als 3 Sekunden geben
+    await interaction.response.defer()
+    
     roles_to_remove = []
     protected_roles = [1545265096484458527, 1545265093489463337] # Member und Giveaway
     saved_role_ids = []
     
     for role in member.roles:
-        # Behalte @everyone, Bot-Rollen, geschützte Rollen und unantastbare Rollen
         if role.name == "@everyone" or role.managed or role.id in protected_roles or role >= interaction.guild.me.top_role:
             continue
         
@@ -369,7 +378,7 @@ async def temp(interaction: discord.Interaction, member: discord.Member):
         saved_role_ids.append(role.id)
         
     if not roles_to_remove:
-        await interaction.response.send_message("❌ No removable roles found.", ephemeral=True)
+        await interaction.followup.send("❌ No removable roles found.")
         return
 
     # Speichern für /restore
@@ -377,7 +386,11 @@ async def temp(interaction: discord.Interaction, member: discord.Member):
     temp_data[str(member.id)] = saved_role_ids
     save_temp_roles(temp_data)
 
-    await member.remove_roles(*roles_to_remove, reason="Temp command triggered")
+    try:
+        await member.remove_roles(*roles_to_remove, reason="Temp command triggered")
+    except discord.Forbidden:
+        await interaction.followup.send("❌ **Fehler:** Ich habe nicht die Berechtigung, diese Rollen zu entfernen. Bitte schiebe meine Bot-Rolle in den Server-Einstellungen ganz nach oben!")
+        return
     
     role_mentions = ", ".join([r.mention for r in roles_to_remove])
     if len(role_mentions) > 3900:
@@ -387,16 +400,20 @@ async def temp(interaction: discord.Interaction, member: discord.Member):
     embed.description = f"🛠️ Removed **{len(roles_to_remove)}** role(s) from {member.mention}:\n\n{role_mentions}"
     embed.set_footer(text="MM2 Trade Assistant")
     
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
+
 
 @bot.tree.command(name="restore", description="Restores roles removed by /temp")
 @app_commands.default_permissions(administrator=True)
 async def restore(interaction: discord.Interaction, member: discord.Member):
+    # Dem Bot mehr Zeit als 3 Sekunden geben
+    await interaction.response.defer()
+    
     temp_data = load_temp_roles()
     user_id = str(member.id)
     
     if user_id not in temp_data or not temp_data[user_id]:
-        await interaction.response.send_message("❌ No saved roles found for this user.", ephemeral=True)
+        await interaction.followup.send("❌ No saved roles found for this user.")
         return
 
     roles_to_add = []
@@ -406,10 +423,14 @@ async def restore(interaction: discord.Interaction, member: discord.Member):
             roles_to_add.append(role)
 
     if not roles_to_add:
-        await interaction.response.send_message("❌ User already has all their saved roles.", ephemeral=True)
+        await interaction.followup.send("❌ User already has all their saved roles.")
         return
 
-    await member.add_roles(*roles_to_add, reason="Restore command triggered")
+    try:
+        await member.add_roles(*roles_to_add, reason="Restore command triggered")
+    except discord.Forbidden:
+        await interaction.followup.send("❌ **Fehler:** Ich habe nicht die Berechtigung, diese Rollen zu verteilen. Bitte schiebe meine Bot-Rolle in den Server-Einstellungen ganz nach oben!")
+        return
     
     # Rolle aus dem Speicher löschen
     del temp_data[user_id]
@@ -423,7 +444,8 @@ async def restore(interaction: discord.Interaction, member: discord.Member):
     embed.description = f"🛠️ Restored **{len(roles_to_add)}** role(s) to {member.mention}:\n\n{role_mentions}"
     embed.set_footer(text="MM2 Trade Assistant")
     
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
+
 
 # --- 9. Start ---
 keep_alive()
