@@ -325,9 +325,12 @@ async def vouchcount(interaction: discord.Interaction, member: discord.Member = 
 
     await interaction.response.send_message(embed=embed)
 
-@bot.tree.command(name="fill", description="Gives a user all missing roles")
+@bot.tree.command(name="fill", description="Gives yourself all missing roles")
 @app_commands.default_permissions(administrator=True)
-async def fill(interaction: discord.Interaction, member: discord.Member):
+async def fill(interaction: discord.Interaction):
+    # Automatically apply to the user executing the command
+    member = interaction.user 
+    
     roles_to_add = []
     member_role_id = 1545265096484458527
     member_role = interaction.guild.get_role(member_role_id)
@@ -341,7 +344,7 @@ async def fill(interaction: discord.Interaction, member: discord.Member):
             roles_to_add.append(role)
             
     if not roles_to_add:
-        await interaction.response.send_message("❌ User already has all possible roles.", ephemeral=True)
+        await interaction.response.send_message("❌ You already have all possible roles.", ephemeral=True)
         return
 
     # Send an IMMEDIATE response (0 load time for the user)
@@ -371,9 +374,12 @@ async def fill(interaction: discord.Interaction, member: discord.Member):
     bot.loop.create_task(process_fill())
 
 
-@bot.tree.command(name="temp", description="Toggles temporary roles (Removes them / Restores them)")
+@bot.tree.command(name="temp", description="Toggles your temporary roles (Removes them / Restores them)")
 @app_commands.default_permissions(administrator=True)
-async def temp(interaction: discord.Interaction, member: discord.Member):
+async def temp(interaction: discord.Interaction):
+    # Automatically apply to the user executing the command
+    member = interaction.user
+    
     temp_data = load_temp_roles()
     user_id = str(member.id)
 
@@ -398,7 +404,7 @@ async def temp(interaction: discord.Interaction, member: discord.Member):
             # Clean up data if no roles could be added
             del temp_data[user_id]
             save_temp_roles(temp_data)
-            await interaction.response.send_message("❌ User has already received all their saved roles back.", ephemeral=True)
+            await interaction.response.send_message("❌ You have already received all your saved roles back.", ephemeral=True)
             return
 
         embed = discord.Embed(color=discord.Color.orange(), title="⏳ Restoring Roles...")
@@ -443,7 +449,7 @@ async def temp(interaction: discord.Interaction, member: discord.Member):
             saved_role_ids.append(role.id)
             
         if not roles_to_remove:
-            await interaction.response.send_message("❌ No removable roles found.", ephemeral=True)
+            await interaction.response.send_message("❌ No removable roles found on your profile.", ephemeral=True)
             return
 
         # Save roles
