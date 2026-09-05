@@ -30,16 +30,12 @@ class VerifyView(View):
     async def accept_button(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(color=discord.Color.green())
         embed.description = f"✅ {interaction.user.mention} has **accepted**."
-        
-        # This edits the original message, replacing the embed and removing the buttons
         await interaction.response.edit_message(content="", embed=embed, view=None)
 
     @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger, custom_id="verify_decline")
     async def decline_button(self, interaction: discord.Interaction, button: Button):
         embed = discord.Embed(color=discord.Color.red())
         embed.description = f"❌ {interaction.user.mention} has **declined**."
-        
-        # This edits the original message, replacing the embed and removing the buttons
         await interaction.response.edit_message(content="", embed=embed, view=None)
 
 # --- 3. Ticket Controls (Claim & Close) ---
@@ -49,6 +45,9 @@ class TicketControlsView(View):
 
     @discord.ui.button(label="Claim Ticket", style=discord.ButtonStyle.primary, custom_id="claim_ticket")
     async def claim_button(self, interaction: discord.Interaction, button: Button):
+        # Allow only the claiming user to send messages in this channel
+        await interaction.channel.set_permissions(interaction.user, read_messages=True, send_messages=True)
+        
         button.disabled = True
         await interaction.message.edit(view=self)
         await interaction.response.send_message(f"{interaction.user.mention} has claimed this ticket and will be your middleman.")
@@ -66,8 +65,9 @@ class TicketView(View):
 
     @discord.ui.button(label="Request Middleman", style=discord.ButtonStyle.green, custom_id="open_ticket")
     async def ticket_button(self, interaction: discord.Interaction, button: Button):
+        # Default permissions: Ticket creator can speak, everyone else can only view (until claimed or added)
         overwrites = {
-            interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False, send_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
             interaction.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
